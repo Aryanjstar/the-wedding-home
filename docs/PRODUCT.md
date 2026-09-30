@@ -3,7 +3,7 @@
 **Tagline:** The operating system for Indian marriages.  
 **Name:** The Wedding Home (where the family runs the wedding, and where guests visit).  
 
-This file is the locked vision. The [PRD](./PRD.md) is what we implement against. [ARCHITECTURE.md](./ARCHITECTURE.md) is how it runs. The [playbook](./PLAYBOOK.md) is how we got here and how we will do the next product.
+This file is the locked vision. The [PRD](./PRD.md) is what we implement against. [ARCHITECTURE.md](./ARCHITECTURE.md) is how it runs, and [DATABASE.md](./DATABASE.md) and [API.md](./API.md) are what it stores and exposes. The [playbook](./PLAYBOOK.md) is how we got here and how we will do the next product.
 
 ## Who this is for
 
