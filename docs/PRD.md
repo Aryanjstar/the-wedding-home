@@ -1,9 +1,9 @@
 # The Wedding Home — Product Requirements Document
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Ready to build  
-**Date:** 20 Sep 2026  
+**Date:** 30 Sep 2026 (first written 20 Sep 2026)  
 **Audience:** Anyone implementing or reviewing a slice
 
 This PRD is the build-ready expansion of the locked plan. It does not invent pages or roles.
@@ -16,6 +16,8 @@ This PRD is the build-ready expansion of the locked plan. It does not invent pag
 | [PLAYBOOK.md](./PLAYBOOK.md) | How we got here; how to do the next idea |
 
 Build in the order in §8. Do not add navigation that is not in the page map.
+
+**v1.3:** Three product choices made while starting the database design: RSVP diet is a headcount per category; the Aashirwad wall is written by the family only; Meet the families is two structured entries. See §7, FR-2.3, FR-2.5, §12, §18.
 
 **v1.2:** Compared with a generic Indian-wedding-OS PRD (Make My Marriage). We copied operational gaps that sit on **existing** pages. We did **not** copy their nav, their three generic themes, or dropping scheduled reminders.
 
@@ -157,7 +159,7 @@ Conceptual. Not a schema.
 
 **User** — name, unique email, password. At most one wedding membership. Forgot-password reset.
 
-**Wedding** — bride name, groom name, intended primary date, city, optional title, cover, story, public slug, published flag, Live URL, wedding-level theme pack, stay list, two helplines, meet the families, aashirwad wall, optional blessings-only / UPI note, gallery guest-upload flag.
+**Wedding** — bride name, groom name, intended primary date, city, optional title, cover, story, public slug, published flag, Live URL, wedding-level theme pack, stay list, two helplines, meet the families (two entries: bride side and groom side, each with a heading, a short blurb and an optional photo), aashirwad wall (blessings written by the family: author, optional relation, message; guests cannot submit), optional blessings-only / UPI note, gallery guest-upload flag.
 
 **Membership** — user, wedding, role `admin` | `manager`. Invite email outstanding until they sign up and join.
 
@@ -165,7 +167,7 @@ Conceptual. Not a schema.
 
 **Household (guest)** — display name, side (bride / groom / other), max people, events invited, secret invite token, optional email, optional phone, notes, invitation-sent flag (email). One invitation = one household, not every individual.
 
-**RSVP** — household, per invited event: status (`silent` | `yes` | `no`), attending count (≤ max), diet (`veg` | `non_veg` | `jain` | `no_onion_garlic` | unset). Later edits via the same link replace the previous answer.
+**RSVP** — household, per invited event: status (`silent` | `yes` | `no`), attending count (≤ max), and when `yes` a **diet headcount**: how many of the attending people are veg, non-veg, Jain, no onion-garlic (the four numbers add up to the attending count). `silent` means no answer yet. Later edits via the same link replace the previous answer.
 
 **Task** — title, optional description, status (`todo` | `doing` | `done`), priority (`low` | `medium` | `high`), assignee (member), optional event, optional due date. No comments, attachments, subtasks, or dependencies.
 
@@ -266,15 +268,15 @@ Unguessable secret URL per household, identifying wedding, household, and invite
 **AC:** Opens a named invitation with no login (couple names, welcome, their events, RSVP). Invalid/expired/unknown token → a calm error, not another family’s invite. Public slug is not this link.
 
 **FR-2.3 RSVP**  
-Per invited event: yes/no; if yes, attending count 1…max; diet veg / non-veg / Jain / no onion-garlic. Same link can change the answer later (replace, do not duplicate).  
-**AC:** Uninvited events hidden. Cannot choose more people than max. Diet is not a single “vegetarian” checkbox. No account.
+Per invited event: yes/no; if yes, attending count 1…max, split into a headcount for each diet: veg, non-veg, Jain, no onion-garlic. Same link can change the answer later (replace, do not duplicate).  
+**AC:** Uninvited events hidden. Cannot choose more people than max. Diet is a headcount per category, not a single “vegetarian” checkbox, and the four numbers must add up to the attending count. No account.
 
 **FR-2.4 Attending counts**  
 Guest surfaces show **how many**, not other families’ names.  
 **AC:** Family Guests page shows household names.
 
 **FR-2.5 Family Guests page**  
-List households, RSVP, copy invite, sent status. Admin and Manager see the same list.
+List households, RSVP, copy invite, sent status. Per function, show attending total and diet totals (the numbers a caterer asks for). Admin and Manager see the same list.
 
 **FR-2.6 Share on WhatsApp**  
 Per household, one tap opens WhatsApp with a prefilled wedding-card message that includes **that** unique invitation URL (not the public slug).  
@@ -417,7 +419,7 @@ Skill: `indian-wedding-themes`.
 | Field | Where | Notes |
 |---|---|---|
 | Muhurat | Primary wedding event + dashboard | A minute, not a day |
-| Veg / non-veg / Jain / no onion-garlic | RSVP on personal invite | Catering is politics |
+| Veg / non-veg / Jain / no onion-garlic | RSVP on personal invite, as a headcount per diet | Catering is politics, and families are mixed |
 | Helpline bride side / groom side | Public site + invite footer | Lost at the farmhouse gate |
 | How to reach, parking, what not to wear | Each function page | White sarees, heels in lawns, wrong gate |
 | Venue map → Google Maps | Each event, below the address | Tap and go |
@@ -486,6 +488,7 @@ The product must behave calmly here. Not new pages.
 
 - Invalid invitation token  
 - RSVP submitted twice → treat as an edit  
+- Diet headcounts that do not add up to the attending count → rejected  
 - Attending count above max → rejected  
 - No email → WhatsApp / copy link still work  
 - Guest with no phone → Share on WhatsApp still opens a chat picker  
@@ -546,6 +549,9 @@ Do not reopen in implementation without an explicit product change:
 - Expenses = spend log with categories, **not** a budget  
 - Gallery = shared photos and videos, optional albums by function, stable QR  
 - Theme studio grows on one token model (not three generic skins)  
+- RSVP diet is a headcount per category, summing to the attending count  
+- Aashirwad wall is written by the family only; guests cannot submit  
+- Meet the families is two entries (bride side, groom side)  
 - One user, one wedding  
 - Page map does not grow extra nav items  
 
