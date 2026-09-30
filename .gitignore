@@ -1,0 +1,15 @@
+node_modules/
+.next/
+.env
+.env.local
+.env.*.local
+.DS_Store
+*.log
+coverage/
+dist/
+.vercel/
+.turbo/
+
+# Private working log (how the project was made). Local only, not published.
+docs/journey/
+.cursor/rules/journey-log.mdc
