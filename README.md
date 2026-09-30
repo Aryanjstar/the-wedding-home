@@ -29,3 +29,7 @@ Family logs in (Admin / Manager). Many of both; **everyone sees the same wedding
 ## Local
 
 App commands will land here when slice 1 exists. Node 20+ when we scaffold.
+
+## License
+
+[MIT](LICENSE)
