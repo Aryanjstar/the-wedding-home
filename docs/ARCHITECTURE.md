@@ -1,9 +1,9 @@
 # The Wedding Home — system architecture
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.2  
+**Version:** 1.3  
 **Status:** Locked for v1 scaffolding  
-**Date:** 30 Sep 2026 (v1.2 review fixes: browser Maps key, cron plan limit)  
+**Date:** 30 Sep 2026 (v1.3 aligns with DATABASE.md and API.md)  
 **Audience:** Anyone implementing a slice
 
 This document is the system design. It does not add pages, roles, or features. Requirements stay in [PRD.md](./PRD.md). Vision stays in [PRODUCT.md](./PRODUCT.md).
@@ -12,10 +12,12 @@ This document is the system design. It does not add pages, roles, or features. R
 |---|---|
 | [PRODUCT.md](./PRODUCT.md) | Locked vision, page map, layers |
 | [PRD.md](./PRD.md) | Requirements, objects, acceptance criteria |
+| [DATABASE.md](./DATABASE.md) | Collections, fields, indexes, integrity |
+| [API.md](./API.md) | The HTTP contract |
 | This file | Processes, boundaries, vendors, and how a request moves |
 | [PLAYBOOK.md](./PLAYBOOK.md) | How we got here; how to do the next idea |
 
-Exact MongoDB schemas, REST contracts, and frontend component trees are later documents. The rules below are already decided, so those documents follow them.
+Exact MongoDB schemas and REST contracts are in [DATABASE.md](./DATABASE.md) and [API.md](./API.md). Frontend component trees are a later document. The rules below are already decided, so those documents follow them.
 
 ---
 
@@ -274,7 +276,7 @@ A household is wedding data, not a user. It has no password and no session. One 
   → later submit replaces the previous RSVP
 ```
 
-Diet is veg, non-veg, Jain, or no onion-garlic. Count cannot exceed the household max. Uninvited events are not in the payload the server will accept.
+Diet is a headcount in each of veg, non-veg, Jain, and no onion-garlic, and the four numbers add up to the attending count. The count cannot exceed the household max. Uninvited events are not in the payload the server will accept.
 
 The invite token is a stable, high-entropy random value stored on the household so organisers can copy the same URL again for WhatsApp, email, and the e-card. It is excluded from logs, from guest-facing JSON, and from any response except the organiser action that copies or sends that household's link. Session ids, password-reset tokens, and member-invite tokens stay hashed. Those can be rotated. The household link cannot, or printed and forwarded messages break.
 
@@ -308,9 +310,9 @@ Client
   → Mongo inserts the row
 ```
 
-The signature check is the file itself, not the browser's claim. JPEG, PNG, WebP, MP4, and QuickTime only. HEIC must be converted to JPEG in the browser before this flow. A mismatch, or an ETag that moved between PUT and complete, does not publish a row.
+The signature check is the file itself, not the browser's claim. JPEG, PNG, WebP, MP4, and QuickTime only, plus MP3 for theme music. HEIC must be converted to JPEG in the browser before this flow. A mismatch, or an ETag that moved between PUT and complete, does not publish a row.
 
-Starting caps: photos 15 MB, gallery video 100 MB, theme loop 20 MB. Theme loops still aim for 20 seconds or less.
+Starting caps: photos 15 MB, gallery video 100 MB, theme loop 20 MB, theme audio 10 MB. The exact list by purpose is API §9. Theme loops still aim for 20 seconds or less.
 
 Staging keys expire by a lifecycle rule. A copy that succeeds and a metadata insert that fails can leave an orphan object. Cleanup of orphans is follow-up work, not part of the request. No metadata row means the item is not in the gallery.
 
@@ -369,7 +371,8 @@ Bulk work does not call Resend in the request that the organiser is waiting on. 
 
 ```text
 PENDING → claimed → PROCESSING → SENT
-                              └→ FAILED after 3 attempts
+                              ├→ FAILED after 3 attempts
+                              └→ SKIPPED when no longer needed
 ```
 
 A job stores attempts, last attempt time, error, and sent time. Claim is an atomic update from `PENDING` to `PROCESSING`, so two overlapping crons cannot send the same row. Batch size starts at 25 and stays configurable. Retries stop at 3.
@@ -384,7 +387,7 @@ The drain route is `/api/internal/jobs/email`. The planner route is `/api/intern
 
 Do not embed thousands of households, RSVPs, or gallery items inside one wedding document.
 
-Working collections, names finalised in the database design:
+Working collections. The names and fields are final in [DATABASE.md](./DATABASE.md):
 
 ```text
 users
@@ -401,6 +404,7 @@ expenses
 vendors
 gallery_items
 email_jobs
+upload_intents
 rate_limits
 ```
 
@@ -422,6 +426,8 @@ v1 hard-deletes tasks, expenses, and gallery items (row and object). Removing a 
 
 ```text
 /api/auth/*
+/api/me
+/api/dashboard
 /api/wedding/*
 /api/members/*
 /api/events/*
@@ -431,6 +437,11 @@ v1 hard-deletes tasks, expenses, and gallery items (row and object). Removing a 
 /api/vendors/*
 /api/website/*
 /api/gallery/*
+/api/reminders/*
+/api/uploads/*
+/api/preview/*
+/api/public/site/{slug}
+/api/public/member-invite/{token}
 /api/public/invite/{token}/*
 /api/public/gallery/{token}/*
 /api/internal/jobs/*
@@ -463,7 +474,7 @@ Large lists are paginated. Gallery uses a cursor. Households, tasks, expenses, a
 | Topic | Rule |
 |---|---|
 | Session | Cookie id only. Role and wedding come from the database |
-| CSRF | `SameSite=Lax` on the session cookie. Cookie-authenticated writes are not accepted from another site |
+| CSRF | `SameSite=Lax` on the session cookie, plus an `Origin` header check on every cookie-authenticated write (API §3) |
 | Isolation | Backend query, not a filtered response |
 | Guest links | 256-bit random. Stable and retrievable by organisers. Never logged |
 | Uploads | Short-lived PUT to one staging key. Signature and size checked before publish |
@@ -601,11 +612,11 @@ Microservices, a separate Express or Nest process, GraphQL, Kafka, RabbitMQ, Red
 
 ## 26. Later design documents
 
-1. Database — collections, indexes, token fields, job schema.
-2. API — routes, bodies, auth, error JSON.
+1. Database — done: [DATABASE.md](./DATABASE.md).
+2. API — done: [API.md](./API.md).
 3. Module layout — folders, repositories, shared helpers.
 4. Frontend — layouts, server and client components, forms.
 5. Security — CSRF details, rate-limit numbers under load, upload edge cases.
 6. Deploy — Atlas, S3, Resend domain, cron, and the first production URL.
 
-Slice 1 can start from this document. Those six docs get sharper as that slice is built. They do not reopen the decisions in section 24.
+Slice 1 can start from this document and the two above. The remaining documents get sharper as that slice is built. They do not reopen the decisions in section 24.
