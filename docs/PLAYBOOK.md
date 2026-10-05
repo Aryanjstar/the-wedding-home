@@ -175,7 +175,7 @@ Give 5–20 options in **different kinds** (ritual word, object, colour, gatheri
   docs/PRODUCT.md
   docs/templates/       ← empty shapes for the next idea; copy forward
   docs/journey/         ← dated log; gitignored by default (private), publish on purpose
-  .cursor/rules/        ← always-on log reminder
+  .cursor/rules/        ← read when that step needs them, not on every message
 ```
 
 Copy `docs/templates/` into the new repo with the playbook. The journey format is `docs/templates/JOURNEY-LOG.md`. Entries go in `docs/journey/`, which stays untracked.

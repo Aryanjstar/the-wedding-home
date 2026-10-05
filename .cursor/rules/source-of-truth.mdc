@@ -1,6 +1,6 @@
 ---
-description: PRD, architecture, database, and API stay the source of truth
-alwaysApply: true
+description: Use when writing product code, changing behavior, or comparing a reference repo. The PRD, architecture, database, and API are the source of truth.
+alwaysApply: false
 ---
 
 # Source of truth
