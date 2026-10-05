@@ -1,0 +1,15 @@
+---
+description: Log each step, keep templates current, and land slices on main
+alwaysApply: true
+---
+
+# Build habit
+
+Do this for every meaningful step until The Wedding Home is live, and again on the next product that copies `docs/PLAYBOOK.md`.
+
+- Append `docs/journey/` using `docs/templates/JOURNEY-LOG.md`. No secrets and no tool traces.
+- If the step taught a repeatable method, update `docs/PLAYBOOK.md` and the matching file in `docs/templates/` in the same change.
+- Build in `docs/PRODUCT.md` slice order. A slice is done when a person can finish that job in the UI. Do not add nav items that are not on the page map, and do not scaffold empty feature modules.
+- Screen design follows `docs/templates/STITCH.md`. A Stitch screen does not change the four source-of-truth docs.
+- Start a new slice or a distinct change on a branch. Cross-check tests, lint, typecheck, and the four docs. Merge into `main`.
+- Commit with a short message and push. Do not leave a finished step only in the working tree.

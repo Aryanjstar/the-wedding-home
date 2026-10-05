@@ -4,6 +4,10 @@ A repeatable path. The Wedding Home is the first time we ran it. Copy this file 
 
 Do not skip the **write-it-down** step. Chat is not the archive. Keep the dated journey log (`docs/journey/`) in the repo folder but out of git unless you decide to publish it; the method (this file) is what gets shared.
 
+Four files stay the source of truth once they exist: the PRD, the system design, the database design, and the API design. Code, Stitch, and any reference repo follow them. Change those four only when the human explicitly asks.
+
+Each finished step is its own short commit, on a branch when the change is a new slice, then merged to `main` and pushed. The checklist is [templates/GIT.md](./templates/GIT.md).
+
 ---
 
 ## Stage 0 — Capture the mess
@@ -180,6 +184,28 @@ Move the agent into that folder **before** scaffolding app code.
 
 ---
 
+## Stage 6b — Scaffold the shell
+
+**Goal:** The app installs, typechecks, and serves a health check. No feature slice yet.
+
+Follow [templates/SCAFFOLD.md](./templates/SCAFFOLD.md). Read the four design docs first. A reference repository is a picture of folders, not a source of objects or routes.
+
+**The Wedding Home example:** 6 Oct 2026. Next.js, Zod, Mongoose 8, bcrypt cost 12, Node 22. Make My Marriage supplied the folder idea (`src/app`, `src/server`, `src/config`). We kept households, integer rupees, and S3. The home page says the shell is running.
+
+---
+
+## Stage 6c — Draw the screens in Stitch
+
+**Goal:** One clickable picture of the page map, after the pages are decided and before those pages are built in code.
+
+Follow [templates/STITCH.md](./templates/STITCH.md). Lock the palette before the first prompt, or a wedding brief becomes flowers, script type, and a pink button. One prompt per screen, in one project, homepage first. A stack of separate prompts does not become a flow. One Web prompt plus Play is how you click through.
+
+Stitch output is not the PRD. If a screen drops a field, write that down and leave the four docs alone until the human asks for the change.
+
+**The Wedding Home example:** 5–6 Oct 2026. Bone, charcoal, pewter, then wine as the accent. No floral stock and no invite-card pink. Twenty-two loose prompts did not connect. The prototype counts three diets; the docs still store four, including no onion-garlic.
+
+---
+
 ## Stage 7 — Build in slices (usable after each)
 
 For The Wedding Home the slices are in PRODUCT.md. For any product:
@@ -192,7 +218,7 @@ For The Wedding Home the slices are in PRODUCT.md. For any product:
 6. The distinctive layer (here: themes)
 7. Deploy, measure, harden
 
-A slice is done when a human can finish that job in the UI.
+A slice is done when a human can finish that job in the UI. Start that slice on a branch, cross-check it, merge to `main`, and push. Record what you learned. If the next product would do the same thing, add it to this playbook or to `docs/templates/` before you call the slice done.
 
 ---
 
@@ -211,6 +237,9 @@ Ship a public URL early even if only slice 1 works. After every deploy, one jour
 - Leaving decisions only in chat.
 - Copying a reference product's schema or routes when its objects are different from the PRD.
 - Starting feature code while the PRD, system design, database, and API still disagree.
+- Letting Stitch, or a reference repo, silently change a locked field.
+- Scaffolding empty modules for slices you have not started.
+- Leaving a finished step uncommitted.
 
 ---
 
@@ -226,5 +255,8 @@ Ship a public URL early even if only slice 1 works. After every deploy, one jour
 - [ ] Domain texture pass
 - [ ] Name chosen
 - [ ] Repo + journey log started
+- [ ] `AGENTS.md` names the four source-of-truth files. `CLAUDE.md` points at it
+- [ ] Shell scaffolded and proven locally ([templates/SCAFFOLD.md](./templates/SCAFFOLD.md))
+- [ ] Screens drawn in Stitch from the page map ([templates/STITCH.md](./templates/STITCH.md))
 - [ ] First slice defined in one sentence
 - [ ] First deploy planned
