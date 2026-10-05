@@ -49,7 +49,7 @@ Ask:
 - What is distinctive (for us: theme studio, per-function music/video)?
 - What is a different company (marketplace, native livestream)?
 
-**Write:** `docs/PRODUCT.md` — in / later / never.
+**Write:** `docs/PRODUCT.md` from [templates/PRODUCT.md](./templates/PRODUCT.md) — in / later / never.
 
 **The Wedding Home example:** Guests never log in. Reminders 1 month / 1 week / 1 day. Livestream = paste a URL. Themes grow forever on one token model.
 
@@ -81,9 +81,62 @@ Ask:
 - What objects exist (wedding, event, household, RSVP, …)?
 - What must be true on every role and every guest link?
 
-**Write:** `docs/PRD.md` — journeys, objects, functional requirements, acceptance criteria. Point PRODUCT.md at it. Do not add pages.
+**Write:** `docs/PRD.md` from [templates/PRD.md](./templates/PRD.md) — journeys, objects, functional requirements, acceptance criteria. Point PRODUCT.md at it. Do not add pages.
 
 **The Wedding Home example:** Canvas signed off 20 Sep 2026; PRD v1.0 the same day. Slice 1 done-when stayed one sentence: sign up, create wedding, add functions, see countdown.
+
+---
+
+## Stage 3c — System design before schema
+
+If the repo from stage 6 already exists, write these docs in it. Naming can happen earlier. Slice code waits until stage 3f is done.
+
+**Goal:** Decide how the app runs, before naming collections or routes.
+
+Ask:
+
+- One deployable or several? Who calls whom?
+- Where do bytes, email, and third-party APIs go?
+- What is the tenant, and how does a request learn it?
+- What fails closed when a provider is down?
+
+**Write:** `docs/ARCHITECTURE.md` from [templates/ARCHITECTURE.md](./templates/ARCHITECTURE.md).
+
+**The Wedding Home example:** One Next.js app, Atlas, S3 in Mumbai, Resend, Places from the server only. Wedding is the tenant even though one user has one wedding.
+
+---
+
+## Stage 3d — Database design from the objects
+
+**Goal:** Every PRD object is a collection or an explicit embed. Indexes match the screens.
+
+Ask:
+
+- What grows without a ceiling, and so must be its own collection?
+- Which secrets are hashed, and which must be copied again later?
+- What deletes, and what is only archived, and what else must move in the same transaction?
+
+**Write:** `docs/DATABASE.md` from [templates/DATABASE.md](./templates/DATABASE.md). Derive it from the PRD and the architecture. Do not invent a field the PRD does not have.
+
+**The Wedding Home example:** Households and RSVPs are separate. Diet is four integers on the RSVP. Gallery bytes stay in S3.
+
+---
+
+## Stage 3e — API design from the database
+
+**Goal:** Every screen can be built from the routes, and every route names its collection, auth, errors, and one example payload.
+
+**Write:** `docs/API.md` from [templates/API.md](./templates/API.md).
+
+---
+
+## Stage 3f — Cross-check before any feature code
+
+**Goal:** Do this once, on purpose, so implementation does not rediscover disagreements between the four docs.
+
+Use the checklist in [templates/CROSS-CHECK.md](./templates/CROSS-CHECK.md). Fix the docs until every box is true. Record the pass in the journey log, including what you refused to copy from a reference product.
+
+**The Wedding Home example:** 4 Oct 2026, compared with a Make My Marriage API and database reference. We kept households, diet headcounts, integer rupees, scheduled reminders, and hard-delete of events. We filled handler-level gaps: slice maps, upload races, gallery delete order, RSVP capacity races, bcrypt, and a public prefix for published theme media.
 
 ---
 
@@ -116,9 +169,12 @@ Give 5–20 options in **different kinds** (ritual word, object, colour, gatheri
   README.md
   docs/PLAYBOOK.md      ← this file
   docs/PRODUCT.md
+  docs/templates/       ← empty shapes for the next idea; copy forward
   docs/journey/         ← dated log; gitignored by default (private), publish on purpose
   .cursor/rules/        ← always-on log reminder
 ```
+
+Copy `docs/templates/` into the new repo with the playbook. The journey format is `docs/templates/JOURNEY-LOG.md`. Entries go in `docs/journey/`, which stays untracked.
 
 Move the agent into that folder **before** scaffolding app code.
 
@@ -153,6 +209,8 @@ Ship a public URL early even if only slice 1 works. After every deploy, one jour
 - Copying another codebase instead of using it as **inspiration**.
 - Adding nav items instead of fields on existing pages.
 - Leaving decisions only in chat.
+- Copying a reference product's schema or routes when its objects are different from the PRD.
+- Starting feature code while the PRD, system design, database, and API still disagree.
 
 ---
 
@@ -163,6 +221,8 @@ Ship a public URL early even if only slice 1 works. After every deploy, one jour
 - [ ] v1 vs later listed
 - [ ] Page map (roles)
 - [ ] PRD with acceptance criteria (after canvas sign-off)
+- [ ] System design, database design, API design, from `docs/templates/`
+- [ ] Cross-check (`docs/templates/CROSS-CHECK.md`) done, and the pass written in the journey log
 - [ ] Domain texture pass
 - [ ] Name chosen
 - [ ] Repo + journey log started

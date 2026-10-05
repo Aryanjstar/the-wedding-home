@@ -1,9 +1,12 @@
 # The Wedding Home — database design
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.0 (draft for review)  
-**Date:** 30 Sep 2026  
+**Version:** 1.1  
+**Status:** Ready for slice 1  
+**Date:** 4 Oct 2026 (1.0 written 30 Sep 2026)  
 **Audience:** Anyone writing a Mongoose model, a repository, or a migration
+
+**1.1** is the gap pass against the Make My Marriage database reference. Collections did not change. The additions are the ones an implementer would otherwise invent: which slice creates which collection, bcrypt, atomic RSVP capacity, gallery delete that keeps the row when storage fails, a unique `storageKey`, the public media prefix, and decisions for the open items in §12.
 
 This document turns the rules in [ARCHITECTURE.md](./ARCHITECTURE.md) and the objects in [PRD.md](./PRD.md) into collections, fields, indexes, and integrity rules. It adds no pages, roles, or features. Where the PRD or architecture was silent or wrong, §12 lists the call made here, so it can be reopened.
 
@@ -151,7 +154,21 @@ erDiagram
 | 15 | `upload_intents` | Yes | Uploads in flight (expire) |
 | 16 | `rate_limits` | No | Requests (expire) |
 
-The architecture listed 15 working collections. `upload_intents` is new (§5.15) and is the only addition, which makes 16.
+The architecture listed 15 working collections. `upload_intents` was added in 1.0 (§5.15), which makes 16.
+
+### Which slice creates which collection
+
+Create the model in the slice that first writes it. Slice 1 dashboard counts for later slices are zeros in the service, not queries against missing models (API §7).
+
+| Slice | Collections first written here |
+|---|---|
+| 1 | `users`, `sessions`, `password_resets`, `weddings`, `memberships`, `member_invitations`, `events`, `upload_intents` (covers only), `rate_limits` |
+| 2 | `households`, `rsvps` |
+| 3 | `email_jobs` |
+| 4 | `tasks`, `expenses` |
+| 5 | No new collection. `weddings.site` fields and theme media start being written. Publish copies public assets (§5.15) |
+| 6 | `vendors` |
+| 7 | `gallery_items`. The `gallery` subdocument and its token already exist from slice 1, so the QR URL never changes |
 
 ---
 
@@ -181,7 +198,7 @@ Field tables use `req` = required on insert. Indexes are written as `{ field: 1 
 |---|---|---|---|
 | `name` | string | yes | 1–100 |
 | `email` | string | yes | Lowercased. Unique |
-| `passwordHash` | string | yes | Argon2id string (parameters live inside it) or bcrypt. Never returned by any query that is not login |
+| `passwordHash` | string | yes | bcrypt, cost 12, pure JS (`bcryptjs` or equivalent). Never returned by any query that is not login. Argon2id is deferred until a native module is proven on Vercel |
 | `passwordChangedAt` | Date | no | Sessions created before it are dead |
 | `schemaVersion`, `createdAt`, `updatedAt` | | yes | |
 
@@ -280,7 +297,7 @@ Two Admins demoting each other at the same instant both write the same wedding d
 | `weddingId` | ObjectId | yes | |
 | `userId` | ObjectId | yes | |
 | `role` | `admin` or `manager` | yes | |
-| `joinedVia` | `creator` or `invitation` | yes | |
+| `joinedVia` | `creator` or `invitation` | yes | The API field `joinedAt` is this document's `createdAt`. There is no second timestamp |
 
 Indexes:
 - `{ userId: 1 }` **unique**. This is the "one user, one wedding" rule, enforced by the database. Removing a member deletes the row, so the user can join elsewhere later
@@ -382,6 +399,8 @@ group   households: count, attending: sum(attendingCount),
 
 "Silent for function E" is the households with E in `invitedEventIds` that have no `yes` or `no` row for E. At 1,000 households that is one indexed query on each side and a set difference in the service.
 
+An RSVP upsert for `yes` is conditional on the household document's current `maxPeople` being at least `attendingCount`. The household read and the RSVP write sit in one transaction. If the max has dropped under the submitted count, the transaction writes nothing and the API returns `MAX_CHANGED`.
+
 Why not create a `silent` row when a household is invited? It would need a matching write every time an invitation list changes and the two copies could drift. The lazy design has one source of truth.
 
 ### 5.10 `tasks`
@@ -463,8 +482,11 @@ After a save, the row does not depend on Google (architecture §14). A vendor wi
 | `hidden` | bool | yes | Hidden items stay in S3 and drop out of guest views |
 
 Indexes:
+- `{ storageKey: 1 }` **unique**. Two completes of one upload cannot insert two rows
 - `{ weddingId: 1, hidden: 1, _id: -1 }` the guest view, newest first, paged by cursor
 - `{ weddingId: 1, eventId: 1, hidden: 1, _id: -1 }` albums
+
+The list cursor is opaque and binds the filter (`eventId`, `hidden`) plus the last `_id`. A cursor presented with a different filter is a validation error, not a different page.
 
 Nothing here stores a URL. Signed URLs are made per request.
 
@@ -504,13 +526,14 @@ Indexes:
 - `{ dedupeKey: 1 }` **unique**
 - `{ status: 1, runAfter: 1 }` the claim
 - `{ weddingId: 1, batchId: 1, status: 1 }` batch progress
+- `{ householdId: 1, status: 1 }` cancel pending jobs when a household or event is deleted
 - `{ expireAt: 1 }` **TTL**, `expireAfterSeconds: 0`
 
-**When a scheduled slot is due.** The planner runs hourly. For a function starting at `T` and a slot offset `d` (1 month, 1 week, 1 day), a household is enqueued when `T - d <= now < T - d + 36h`, the household existed at `T - d`, and it is still silent (or, for see-you-soon, has said yes). The 36 hour window forgives a missed cron run without sending a "1 month" reminder to someone invited last week. Calendar months are computed in `Asia/Kolkata`. (Open item 3, §12.)
+**When a scheduled slot is due.** The planner runs hourly. Please-RSVP uses offsets of 1 month, 1 week, and 1 day. See-you-soon uses 1 day only. For a function starting at `T` and a slot offset `d`, a household is enqueued when `T - d <= now < T - d + 36h`, the household's `createdAt` is at or before `T - d`, and it is still silent (or, for see-you-soon, has said yes). The 36 hour window forgives a missed cron run. A household added after the trigger time does not receive that slot, so someone invited yesterday does not get a "1 month" mail. Calendar months are computed in `Asia/Kolkata`. This is the v1 reading of the reminder clock.
 
 ### 5.15 `upload_intents`
 
-New in this document. It ties a browser's later "complete" call to the exact permission that was issued, so the client cannot upload one thing and ask for another to be published.
+It ties a browser's later "complete" call to the exact permission that was issued, so the client cannot upload one thing and ask for another to be published. The transition and the race are in API §9. `finalKey` is `weddings/{weddingId}/…/{uploadId}` and does not depend on the client's filename.
 
 | Field | Type | Req | Notes |
 |---|---|---|---|
@@ -529,6 +552,8 @@ New in this document. It ties a browser's later "complete" call to the exact per
 Indexes: `{ expireAt: 1 }` **TTL**; `{ weddingId: 1, status: 1 }`.
 
 Allowed types and caps by purpose are in API §9.
+
+**Public media prefix.** Gallery objects and staging objects stay private, and the family app reads them with signed URLs. Cover images, family photos, and theme media are shown on a cacheable public page, so a signed URL per view would defeat the cache and a Vercel proxy would pull the bytes back through the function. On publish, the server copies each referenced object to `weddings/{weddingId}/public/{assetId}`. Replacing one of those objects while the site is published copies the new object into the prefix and deletes the previous public object. The bucket allows public read on that prefix only. The public site stores and renders those keys as stable URLs. Preview and the family app keep using signed reads of the private object until publish. Unpublish stops linking the public URLs within the page cache (about a minute). It does not promise that a previously copied URL becomes instantly unreachable. Guest PII does not go in this prefix. Gallery items never do.
 
 ### 5.16 `rate_limits`
 
@@ -587,7 +612,7 @@ MongoDB has no foreign keys. These rules live in services and each has a test (s
 | Household | Delete its `rsvps` and its pending `email_jobs`. Its guest link stops working at once (the token row is gone) | Yes |
 | Saved vendor | Copy the vendor's name into `vendorLabel` on its expenses, then unset `vendorId`, so the bill does not lose who it was paid to | Yes |
 | Member | Delete the membership. Unset `assigneeId` on their tasks. Their user account and sessions remain | Yes |
-| Gallery item | Delete the row, then the S3 object. A failed S3 delete leaves an orphan for cleanup (architecture §12); the row is already gone | No |
+| Gallery item | Delete the S3 object first. If that fails and the object is still there, keep the row and return `STORAGE_DELETE_FAILED` so the organiser can retry. If the object is gone, delete the row. A late `complete` cannot recreate a row whose intent is already `completed` | No |
 | Task, expense | Just the row | No |
 
 **When an event is changed:** removing an event from a household's `invitedEventIds` deletes that household's RSVP for it, after the same kind of confirmation. Lowering `maxPeople` below an existing `attendingCount` is refused.
@@ -602,7 +627,7 @@ Every transaction is short, touches one wedding, and uses `retryWrites`. Handler
 
 | Item | Storage | Reason |
 |---|---|---|
-| Passwords | Argon2id or bcrypt hash | Slow on purpose |
+| Passwords | bcrypt, cost 12 | Slow on purpose, and it runs on Vercel without a native build |
 | Session id, reset token, member-invite token | SHA-256 hash only | Random 256-bit values. A database leak does not give working cookies or links |
 | Household invite token, gallery token | Stored in the clear, unique index | Organisers must copy the same link again. The cost: whoever can read the database can open every invitation. It is why production access is limited and why these fields never appear in logs, list responses, or backups shared outside the team |
 | Rate-limit keys | HMAC | The counter collection never holds a raw token or IP |
@@ -623,7 +648,17 @@ Repositories never return a raw document to a route. They return a mapped shape 
 | `email_jobs` | 30 days after a final status | TTL index on `expireAt` |
 | `rate_limits` | One window | TTL index |
 | `member_invitations` | Indefinitely | Small. Revisit if it ever matters |
-| Everything else | While the wedding exists | Deletion of a whole wedding is not a v1 feature. Removal on request is a manual, scripted job for the operator until then (open item 7) |
+| Everything else | While the wedding exists | Deletion of a whole wedding is not a v1 feature. Removal on request is the operator procedure below |
+
+**Erasure on request (operator procedure, before the first real family).** There is no in-app "delete wedding" button. When someone asks for their data to be removed, an operator with production access runs a scripted job against that one `weddingId`, in this order, and writes the date in the journey log:
+
+1. Export nothing to a laptop. Work in the cluster.
+2. Delete S3 prefixes `weddings/{weddingId}/` including `public/`, `staging/`, and `gallery/`.
+3. Delete wedding-scoped rows: `gallery_items`, `email_jobs`, `upload_intents`, `expenses`, `vendors`, `tasks`, `rsvps`, `households`, `events`, `member_invitations`, `memberships`, then the `weddings` document.
+4. Delete `sessions` for those user ids. Delete a `users` row only when that person has no remaining membership and asked for the account itself. A user who only left one wedding keeps the account if they might join another later; v1 allows one wedding, so leaving usually means the account can go too once they ask.
+5. Confirm a guest token lookup and a slug lookup both miss.
+
+This is the v1 answer to a removal request. A productised delete lands later.
 
 Note that MongoDB's TTL monitor runs about once a minute, so an expired session can live up to a minute longer. Reads therefore also check `expiresAt`.
 
@@ -677,13 +712,17 @@ Index memory: the largest indexes are `rsvps` and `gallery_items`, tens of megab
 | 9 | Per-wedding limits | Protects a free product from one abusive or broken account |
 | 10 | `nameSearch` field instead of a text index | Prefix search is what people type ("Sha…"); it uses an ordinary index |
 | 11 | The e-card is rendered on demand and never stored | It is a picture of data we already hold. The `ecards/` key prefix in architecture §12 goes unused in v1 |
+| 12 | bcrypt cost 12 | A native Argon2 module is a poor bet on Vercel for slice 1 |
+| 13 | RSVP upsert is conditional on current `maxPeople` | An organiser and a guest can write at the same time |
+| 14 | Gallery delete removes the object before the row | A failed storage delete must stay visible so it can be retried |
+| 15 | `public/` prefix for published cover, family, and theme media | Signed URLs break the public-page cache. Gallery stays private |
+| 16 | Reminder window is 36 hours, and the household must already exist at the trigger | Forgives a missed cron. Avoids a "1 month" mail to someone invited yesterday |
+| 17 | See-you-soon is the 1-day slot only | The PRD marks a 1-week see-you-soon mail as optional. v1 does not send it |
+| 18 | Erasure is an operator script (§9) | There is a written path before the first real family. There is still no in-app delete |
 
-### Open items for review
+### Still open
 
-1. **Who edits helplines, stay, families, and aashirwad?** Here they sit under the Admin-only `site`, because they are public-site content. But helplines matter operationally and a Manager may want to update the stay list. Alternative: split them into a Manager-writable `details` subdocument. Cheap to change now, annoying later.
-2. **Theme media in a private bucket.** Theme videos and images are shown on a public, cacheable page, but the bucket is private and signed URLs expire. A signed URL per page view defeats caching. Options: a small proxy route with cache headers, or a public-read prefix for theme assets only. Not needed until slice 5. Decide before it.
-3. **The reminder catch-up window** (36 hours) and "a household must exist at the trigger time" are my rule, not the PRD's. Confirm they match how you want reminders to behave.
-4. **Per-wedding limits** in §2 are guesses. The 2,000 household ceiling is double the design target.
-5. **Places terms of service.** Saved vendors copy name, address, and contact from Google Places into our rows (architecture §14). Google restricts how long Places content may be cached or stored, except place ids. Check the current terms before slice 6, and if needed store only `googlePlaceId` plus what the organiser types themselves.
-6. **CSV import of guests.** A 1,000 household list will not be typed row by row. It is not in the PRD or the page map (an import button on Guests would be a field, not a menu). Worth adding to a slice; no schema change needed.
-7. **Erasure on request.** India's Digital Personal Data Protection Act, 2023 expects a way to remove personal data. With no delete-wedding feature, that is a manual script for now. Worth a written procedure before the first real family.
+1. **Per-wedding limits** in §2 are starting configuration. The 2,000 household ceiling is double the design target. Raise them in config when a real wedding needs it. No schema change.
+2. **Places terms of service**, before slice 6. Saved vendors currently copy name, address, and contact after the organiser saves a place (architecture §14). Google restricts how long Places content may be stored, with place ids as the usual exception. Check the current terms before that slice. If the terms forbid the copy, store `googlePlaceId` plus only what the organiser types.
+3. **Guest CSV import** is not in v1. The Guests page stays as specified. An import action later needs no schema change.
+4. **S3 multipart for large videos**, before slice 7. Until a spike says otherwise, gallery video is one PUT (API §9).

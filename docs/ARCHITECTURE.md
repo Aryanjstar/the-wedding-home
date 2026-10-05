@@ -1,9 +1,9 @@
 # The Wedding Home — system architecture
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.3  
+**Version:** 1.4  
 **Status:** Locked for v1 scaffolding  
-**Date:** 30 Sep 2026 (v1.3 aligns with DATABASE.md and API.md)  
+**Date:** 4 Oct 2026 (v1.4 matches the API and database gap pass; v1.3 was 30 Sep 2026)  
 **Audience:** Anyone implementing a slice
 
 This document is the system design. It does not add pages, roles, or features. Requirements stay in [PRD.md](./PRD.md). Vision stays in [PRODUCT.md](./PRODUCT.md).
@@ -76,7 +76,7 @@ That scale is the ceiling this design must survive. It is not a reason to add qu
 | Input validation | Zod at the HTTP boundary |
 | Auth | Custom email and password. No Clerk, Auth0, or similar |
 | Session | Random id in an httpOnly cookie. Server stores the hash |
-| Passwords | Argon2id or bcrypt via a library. No hand-rolled crypto |
+| Passwords | bcrypt, cost 12, via a pure-JS library. No hand-rolled crypto. Argon2id is deferred (DATABASE §5.1) |
 | Files | Private Amazon S3 bucket in `ap-south-1` |
 | Email | Resend, behind `EmailService` |
 | Bulk email | MongoDB job rows, small batches, Vercel Cron |
@@ -214,7 +214,7 @@ POST /api/auth/logout
   delete session row → clear cookie
 ```
 
-The cookie stores a random session id, not a role and not a wedding id. Mongo stores the hash of that id, the user id, and `expiresAt`. Cookie flags: `HttpOnly`, `Secure`, `SameSite=Lax`. Sessions last 30 days. Logout and password reset delete that user's sessions.
+The cookie stores a random session id, not a role and not a wedding id. Mongo stores the SHA-256 hash of that id, the user id, and `expiresAt`. `SESSION_SECRET` is not part of the hash. Cookie flags: `HttpOnly`, `Secure`, `SameSite=Lax`. A session lasts 30 days from the last daily renewal, and never more than 90 days from `createdAt`. A session created before `passwordChangedAt` is dead. Logout and password reset delete that user's sessions. The exact cookie name and the renewal write are in API §3 and DATABASE §5.2.
 
 Password reset always returns the same generic message. The email contains a single-use token. Mongo stores a hash and an expiry. The link sets a new password and burns the token.
 
@@ -290,7 +290,7 @@ Share on WhatsApp builds `wa.me` on the server (or as a link the organiser's pho
 
 Mongo holds metadata. S3 holds bytes. The gallery token is one per wedding, stable, and stored so Photos can show the link and the QR again. Same logging rules as the household token. The QR image is generated when an organiser asks for it. It is not stored. The QR text is `https://{host}/g/{token}`.
 
-Guests with the link see non-hidden photos and videos. They upload only when the wedding flag is on. They cannot hide or delete. Organisers can upload, hide, delete, and download. Hide keeps the object and drops it from guest views. Delete removes the metadata and the S3 object.
+Guests with the link see non-hidden photos and videos. They upload only when the wedding flag is on. They cannot hide or delete. Organisers can upload, hide, delete, and download. Hide keeps the object and drops it from guest views. Delete removes the S3 object first and the metadata row only after the object is gone. If storage refuses the delete, the row stays and the API returns a retryable error (API §7.12). Download returns a short-lived signed URL in JSON. The app does not proxy the bytes and does not redirect.
 
 There is no approval queue. Upload becomes visible after the metadata row is published. Organisers remove a bad item afterwards.
 
@@ -328,7 +328,7 @@ weddings/{weddingId}/gallery/{itemId}
 weddings/{weddingId}/ecards/{id}
 ```
 
-The bucket blocks public access. IAM on Vercel can put, get, head, delete, and copy inside this bucket only. CORS allows `GET`, `PUT`, and `HEAD` from the production origin and localhost, and allows the `Content-Type` header. Dev and production use different buckets and different credentials.
+The bucket blocks public access except the prefix `weddings/{weddingId}/public/`, which is public-read and holds published cover, family, and theme objects only (DATABASE §5.15). Gallery, staging, and unpublished media stay private. IAM on Vercel can put, get, head, delete, and copy inside this bucket only. CORS allows `GET`, `PUT`, and `HEAD` from the production origin and localhost, and allows the `Content-Type` header. Dev and production use different buckets and different credentials.
 
 ---
 
@@ -418,7 +418,7 @@ The Mongo client is cached on `globalThis` and reused. A request must not open a
 
 Transactions are for the few writes that must succeed together: create wedding plus first Admin, and accept invite plus membership. Ordinary updates are single-document.
 
-v1 hard-deletes tasks, expenses, and gallery items (row and object). Removing a member deletes the membership and leaves the user account. Deleting a whole wedding is not a v1 feature.
+v1 hard-deletes tasks and expenses. Gallery delete removes the object, then the row, and keeps the row if the object delete fails. Removing a member deletes the membership and leaves the user account. Deleting a whole wedding is not a v1 feature; the operator procedure is DATABASE §9. Transactions also cover the last-Admin update and the cascading deletes in DATABASE §7.
 
 ---
 
@@ -486,7 +486,7 @@ Rate-limit order on RSVP and upload permission:
 
 1. Per-IP limit runs first, including for bad tokens, so guessing costs the caller.
 2. Resolve the token. A bad token returns the calm error and does not consume the per-link budget.
-3. Per-link limit, then the shared application limit, and only after the token is valid.
+3. Per-link limit, then the shared application limit, and only after the token is valid. The numbers are in API §6. A rejected or unknown token does not consume the shared limit.
 
 Login, signup, and forgot-password are per IP. Limits are configurable. Starting points: auth 20 per IP per 15 minutes, RSVP 20 per invite per 15 minutes, upload permission 30 per gallery token per 15 minutes.
 
@@ -593,6 +593,10 @@ One end-to-end path, once slice 2 exists: signup → create wedding → add a fu
 | 11 | Scheduled reminders stay | 1 month / 1 week / 1 day before that function, plus send-now. Jobs are how they send, not a reason to drop the clock |
 | 12 | Places for discovery only | Saved vendors are our rows. No booking |
 | 13 | Vercel | Matches Next.js. Cron is an HTTP call with a secret |
+
+### Aligned on 4 Oct 2026
+
+The API and database gap pass locked bcrypt, the upload-complete race, gallery delete order, opaque cursors, RSVP `MAX_CHANGED`, the public media prefix, reminder timing, and which slice creates which module. Those sentences live in API.md and DATABASE.md. This file now matches them. Product decisions in the PRD did not move.
 
 ### Taken from the 30 Sep 2026 architecture review
 

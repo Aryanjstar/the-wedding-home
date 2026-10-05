@@ -1,9 +1,12 @@
 # The Wedding Home — API design
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.0 (draft for review)  
-**Date:** 30 Sep 2026  
+**Version:** 1.1  
+**Status:** Ready for slice 1  
+**Date:** 4 Oct 2026 (1.0 written 30 Sep 2026)  
 **Audience:** Anyone writing a route handler, a Zod schema, or a client call
+
+**1.1** closes the gap pass against the Make My Marriage API reference. Product rules did not move. What changed is the contract a handler can implement without inventing behaviour: which slice owns which route, session checks, upload and delete races, RSVP capacity races, email-send failure, opaque gallery cursors, and the open items in §15 that are now decisions.
 
 This is the HTTP contract of the single Next.js app described in [ARCHITECTURE.md](./ARCHITECTURE.md), over the collections in [DATABASE.md](./DATABASE.md). It adds no pages, roles, or features. Requirements stay in [PRD.md](./PRD.md).
 
@@ -39,7 +42,7 @@ Every route handler does the five steps of architecture §7: parse, authenticate
 | `null` | In a `PATCH`, `null` clears an optional field. A field left out is left alone |
 | Unknown fields | Rejected with `VALIDATION_ERROR`. Zod objects are `.strict()`. This blocks mass assignment (`{"role":"admin"}` on a profile update) |
 | Trailing slash, methods | No trailing slash. `405` with `Allow` for a wrong method |
-| Status codes | `200` read or update, `201` create (with `Location`), `202` accepted for background work, `204` no body, `302` only for downloads |
+| Status codes | `200` read or update, `201` create (with `Location`), `202` accepted for background work, `204` no body, `413` body over 256 KiB. This API does not redirect; a download is a `200` with a short-lived URL |
 
 ### Verbs
 
@@ -57,7 +60,31 @@ Retries are safe where the operation is naturally idempotent: `PUT` for RSVPs, s
 
 ### Concurrency
 
-Last write wins. `PATCH` changes only the named fields, so two organisers editing different fields of one record do not overwrite each other. Every resource returns `updatedAt`. Architecture §19 already excludes real-time collaboration.
+Last write wins. `PATCH` changes only the named fields, so two organisers editing different fields of one record do not overwrite each other. Every resource returns `updatedAt`. The server does not reject a stale `updatedAt`. Architecture §19 already excludes real-time collaboration. Do not add optimistic version conflicts in v1.
+
+### Rules every handler follows
+
+1. **Pipeline.** Parse JSON → authenticate (or resolve the token) → Zod (`.strict()`) → service → map to the response. The route does not touch Mongoose.
+2. **Ids in the path** (`eventId`, `userId`, and the rest) are 24-character hex. Anything else is `400 VALIDATION_ERROR` before a query runs.
+3. **Empty string** on an optional text field is `VALIDATION_ERROR`. Send `null` to clear. Omitting the field leaves it.
+4. **JSON bodies** are at most 256 KiB. Larger requests are `413` with `VALIDATION_ERROR`. File bytes never arrive on these routes (§9).
+5. **Duplicate-key errors** from the unique indexes in DATABASE.md map to the reason in this table. The client never sees a Mongo error.
+
+| Unique index | Reason |
+|---|---|
+| `users.email` | `EMAIL_TAKEN` |
+| `memberships.userId` on create-wedding or join | `ALREADY_HAS_WEDDING` or `MEMBER_OF_OTHER_WEDDING` |
+| pending member invitation | `INVITATION_PENDING` |
+| `site.slug` | `SLUG_TAKEN` |
+| `events` primary | retry the primary-move transaction |
+| `rsvps (householdId, eventId)` | the upsert replaces the row; this is success |
+| `vendors.place.googlePlaceId` | `ALREADY_SAVED` |
+| `gallery_items.storageKey`, `email_jobs.dedupeKey` | return the row that already won |
+
+6. **Logs** on each request: `requestId`, method, route template (with ids redacted), status, `userId`, `weddingId`, duration, `code`. Never log passwords, cookies, reset tokens, member-invite tokens, household invite tokens, gallery tokens, `waUrl`, signed URLs, or raw provider bodies.
+7. **Provider failures** (Resend, S3, Places) become `503` `INTERNAL_ERROR` reason `DEPENDENCY_UNAVAILABLE`, or `DISCOVERY_UNAVAILABLE` for Places search. The response text is ours.
+
+`201` responses include a `Location` header with the new resource path.
 
 ---
 
@@ -77,6 +104,8 @@ Last write wins. `PATCH` changes only the named fields, so two organisers editin
 Cookie `__Host-twh_session` in production (`twh_session` on `http://localhost`): `HttpOnly; Secure; SameSite=Lax; Path=/`, no `Domain`, so it can never be sent to a sibling subdomain. The value is 32 random bytes, base64url. The database keeps its SHA-256 hash (DATABASE §5.2).
 
 For a private route the server resolves, in order: cookie, session, user, membership, `weddingId`, role, permission, query. A valid session with no membership gets `403` reason `NO_WEDDING` on wedding-scoped routes, which is how the UI knows to show "Create your wedding".
+
+Session lookup hashes the cookie with SHA-256 and loads that row. It then rejects the session when `expiresAt` is in the past or when `sessions.createdAt` is earlier than `users.passwordChangedAt`. `SESSION_SECRET` is not mixed into that hash. `lastSeenAt` and the sliding `expiresAt` update at most once a day, using the rule in DATABASE §5.2. A session past 90 days from `createdAt` is not extended; the person signs in again.
 
 ### CSRF
 
@@ -130,6 +159,8 @@ Validation failures add `errors`:
 }
 ```
 
+Some conflicts add `details`, an object with the keys named in that reason's row (`invitationId`, `householdsInvited`, `rsvpsRemoved`). Clients branch on `code` and `reason`, then read `details` when the reason defines it.
+
 - `code` is one of the seven from architecture §17 and is what clients branch on first.
 - `reason` is specific and stable. The UI maps it to its own words. `detail` and `message` are safe English for logs and fallbacks.
 - No stack traces, no SQL-like internals, no other tenant's data. Unknown ids and ids from another wedding are both `NOT_FOUND`.
@@ -167,6 +198,7 @@ Validation failures add `errors`:
 | `PUBLISH_REQUIREMENTS` | 409 | Publishing without a slug or without any function. `details` names what is missing |
 | `CONFIRMATION_REQUIRED` | 409 | A destructive change needs `?confirm=true`. `details` says what will go |
 | `MAX_BELOW_ATTENDING` | 409 | Lowering a household's `maxPeople` under an existing answer |
+| `MAX_CHANGED` | 409 | RSVP arrived after an organiser lowered `maxPeople` under the submitted count. Nothing was saved. The client reloads the invite |
 | `NO_EMAIL` | 409 | Sending an email to a household with no address |
 | `ALREADY_ANSWERED` | 409 | Reminding a household that has answered |
 | `ALREADY_SAVED` | 409 | Saving a vendor place twice |
@@ -174,6 +206,7 @@ Validation failures add `errors`:
 | `UPLOADS_DISABLED` | 403 | Guest upload switched off, or gallery closed |
 | `UPLOAD_MISMATCH` | 409 | Complete found a different length, type, or ETag than promised |
 | `UPLOAD_EXPIRED` | 409 | Upload permission timed out |
+| `STORAGE_DELETE_FAILED` | 503 | The object is still in storage, so the gallery row was kept. The client may retry the delete |
 | `DIET_MISMATCH` | 400 | Diet numbers do not add up to the attending count |
 | `RSVP_OVER_MAX` | 400 | Attending count above the household maximum |
 | `EVENT_NOT_INVITED` | 400 | RSVP for a function the household was not invited to |
@@ -184,7 +217,7 @@ Validation failures add `errors`:
 
 - **Login:** the same `INVALID_CREDENTIALS` for unknown email and wrong password, with similar timing (hash a dummy password when the user does not exist).
 - **Forgot password:** always `202` with the same body.
-- **Signup:** `EMAIL_TAKEN` is unavoidable, because the PRD requires rejecting a duplicate (FR-1.1). This does tell a caller that an address has an account. It is rate-limited per IP (§6). See open item 1.
+- **Signup:** `EMAIL_TAKEN` is unavoidable, because the PRD requires rejecting a duplicate (FR-1.1). This does tell a caller that an address has an account. It is rate-limited per IP (§6). Accepted for v1 (§15).
 - **Guest tokens:** a bad token is `404` with a calm body and the same timing as a good token that finds nothing else.
 - **Cross-wedding ids:** `404`, never `403`.
 
@@ -218,7 +251,7 @@ GET /api/gallery/items?limit=30&cursor=6512ab…
 { "items": [ … ], "nextCursor": "6512aa…" }
 ```
 
-The cursor is opaque to the client (the last `_id` inside). `nextCursor` is absent on the last page. `limit` defaults to 30, max 60. Newest first. This stays stable while guests upload.
+The cursor is opaque. It carries the list filter and the last `_id`, so a cursor cannot be replayed against a different album or hidden-state. `nextCursor` is absent on the last page. `limit` defaults to 30, max 60. Newest first (`_id` descending, which is also time order). This stays stable while guests upload. Pending upload intents never appear in this list.
 
 ### Small lists
 
@@ -238,16 +271,34 @@ Counters are in MongoDB (DATABASE §5.16). Limits are configuration; these are t
 | RSVP | IP first, then invite token | 20 per 15 min per invite |
 | Guest routes with a token (GET) | IP | 120 per minute, including bad tokens |
 | Upload permission | IP first, then gallery token | 30 per 15 min per token |
+| RSVP, all weddings | Application, only after the token is valid | 300 per minute |
+| Upload permission, all weddings | Application, only after the caller is allowed | 600 per 15 min |
 | Member invitations | Wedding | 20 per day |
 | Household emails (invite, single reminder) | Wedding | 500 per day |
 | Send-now bulk | Wedding | 10 per hour |
 | Vendor search | Wedding | 30 per hour (each search costs money) |
 
-For token routes the order is architecture §18: the IP counter runs first, so guessing costs the caller; a bad token returns the calm `404` and does not use the per-link budget; the per-link counter runs only after the token is valid. Exceeding a limit returns `429`, reason `RATE_LIMITED`, and `Retry-After`.
+For token routes the order is architecture §18: the IP counter runs first, so guessing costs the caller; a bad token returns the calm `404` and does not use the per-link budget; the per-link counter runs only after the token is valid; the application-wide counter runs last, and only for a request the per-link counter admitted. A flood of bad tokens cannot empty the shared budget. Exceeding a limit returns `429`, reason `RATE_LIMITED`, and `Retry-After`.
 
 ---
 
 ## 7. Family app endpoints
+
+### What ships in which slice
+
+Later slices add routes. They do not require the earlier app to import their modules. Slice 1 dashboard numbers for households, tasks, expenses, and vendors are `0` and `tasksNearingDue` is `[]`, with no query to those collections.
+
+| Slice | Routes that land with it |
+|---|---|
+| 1 | §7.1–7.5 except `GET /api/events/{id}/attendance` (returns zeros if called). `POST /api/uploads` and complete, purposes `wedding_cover` and `event_cover` only. Preview is a page stub; §7.13 waits for slice 5 |
+| 2 | §7.6 except the e-card, §7.5 attendance, §8.3 |
+| 3 | §7.7, §10 |
+| 4 | §7.8, §7.9. Dashboard task and expense numbers become real |
+| 5 | §7.11, §7.13, §8.1, e-card in §7.6, upload purposes `family_photo`, `theme_image`, `theme_video`, `theme_audio` |
+| 6 | §7.10. Dashboard vendor count becomes real |
+| 7 | §7.12, §8.4, upload purpose `gallery` |
+
+The gallery token is still created with the wedding in slice 1, so the URL does not change when Photos ships.
 
 Notation for **Who**: `S` any signed-in member (Admin or Manager), `A` Admin only, `—` no session needed, `SU` signed-in user, member or not.
 
@@ -260,7 +311,7 @@ Every route from §7.3 on also needs a membership, except where **Who** says oth
 | `POST /api/auth/signup` | — | `{ name, email, password }` | `201` Me object (§7.2), sets the cookie. Creates no wedding | `EMAIL_TAKEN` 409 |
 | `POST /api/auth/login` | — | `{ email, password }` | `200` Me object, sets the cookie | `INVALID_CREDENTIALS` 401 |
 | `POST /api/auth/logout` | SU | — | `204`, deletes the session row, clears the cookie | |
-| `POST /api/auth/forgot-password` | — | `{ email }` | `202` `{ "message": "If that address has an account, we have sent a reset link." }` always | |
+| `POST /api/auth/forgot-password` | — | `{ email }` | `202` `{ "message": "If that address has an account, we have sent a reset link." }` always, including when Resend fails and when the address is unknown. The failure is logged | |
 | `POST /api/auth/reset-password` | — | `{ token, password }` | `204`, deletes **all** of that user's sessions | `INVALID_TOKEN` (`VALIDATION_ERROR` 400) for unknown, used, or expired |
 
 Signup and reset do not sign anyone in as a side effect of anything but their own success. Reset does **not** log the user in: they sign in with the new password.
@@ -306,32 +357,50 @@ Changing the couple's names or date never changes a published slug.
 }
 ```
 
-`daysToGo` is computed on the server in `Asia/Kolkata` and can be zero or negative after the day. `source` is `primary_event` or `wedding_date`. `householdsAnswered` counts households with at least one RSVP row. Values are computed live, with no cache, in parallel queries (DATABASE §6).
+`daysToGo` is computed on the server in `Asia/Kolkata` and can be zero or negative after the day. `source` is `primary_event` or `wedding_date`. `householdsAnswered` counts households with at least one RSVP row. From the slice that owns each number onward, values are computed live, with no cache, in parallel queries (DATABASE §6).
+
+`GET /api/wedding` returns details only. `site` and `gallery.token` stay off this payload.
+
+```json
+{
+  "id": "…",
+  "brideName": "Ananya",
+  "groomName": "Rohan",
+  "title": null,
+  "story": null,
+  "weddingDate": "2027-02-14",
+  "city": "Dehradun",
+  "cover": null,
+  "updatedAt": "…"
+}
+```
+
+`cover`, when set, is `{ url, contentType, expiresAt }` from a signed read of the private object. The public site uses a different URL once the wedding is published (§8.1).
 
 ### 7.4 Members
 
 | Endpoint | Who | Body | Success | Errors |
 |---|---|---|---|---|
 | `GET /api/members` | A | — | `200` `{ members: [{ userId, name, email, role, joinedAt }], invitations: [{ id, email, role, status, expiresAt, createdAt }] }` (pending only) | |
-| `POST /api/members/invitations` | A | `{ email, role }` | `201` invitation. Sends the email inside the request | `ALREADY_MEMBER`, `MEMBER_OF_OTHER_WEDDING`, `INVITATION_PENDING`, `LIMIT_REACHED`, `DEPENDENCY_UNAVAILABLE` |
+| `POST /api/members/invitations` | A | `{ email, role }` | `201` invitation, then the email is sent. The row is kept if Resend fails: `503` `DEPENDENCY_UNAVAILABLE` with `details.invitationId`, and the client calls resend. A second create is `INVITATION_PENDING` | `ALREADY_MEMBER`, `MEMBER_OF_OTHER_WEDDING`, `INVITATION_PENDING`, `LIMIT_REACHED` |
 | `POST /api/members/invitations/{id}/resend` | A | — | `204`. New token, new 7-day expiry, email sent | |
 | `DELETE /api/members/invitations/{id}` | A | — | `204`. Status becomes `revoked` | |
-| `PATCH /api/members/{userId}` | A | `{ role }` | `200` member | `LAST_ADMIN` |
+| `PATCH /api/members/{userId}` | A | `{ role }` | `200` member. The path id is the user id. The service loads the membership with `{ userId, weddingId }`. `joinedAt` in the list is `memberships.createdAt` | `LAST_ADMIN` |
 | `DELETE /api/members/{userId}` | A | — | `204` | `LAST_ADMIN` |
 | `POST /api/members/leave` | S | — | `204`. The caller leaves. Any role | `LAST_ADMIN` |
 | `POST /api/members/join` | SU without a wedding | `{ token }` | `200` Me object. Marks the invitation accepted and creates the membership in one transaction | `INVITATION_*`, `INVITE_EMAIL_MISMATCH`, `MEMBER_OF_OTHER_WEDDING` |
 | `GET /api/members/assignees` | S | — | `200` `{ items: [{ userId, name }] }`. For the task assignee picker; a Manager needs it and cannot open Members. No emails | |
 
-Joining requires the signed-in user's email to equal the invited email. Someone who forwards the link cannot pass their invitation to a different person (open item 2).
+Joining requires the signed-in user's email to equal the invited email. Someone who forwards the link cannot pass their invitation to a different person (§15).
 
 ### 7.5 Events
 
 | Endpoint | Who | Body / query | Success | Errors |
 |---|---|---|---|---|
-| `GET /api/events` | S | — | `200` `{ items }` sorted by `startsAt`. Each item includes `householdsInvited` | |
+| `GET /api/events` | S | — | `200` `{ items }` sorted by `startsAt`. Each item includes `householdsInvited`, counted from `households.invitedEventIds`. Slice 1 reports `0` | |
 | `POST /api/events` | S | Event fields below | `201` event | `LIMIT_REACHED` |
 | `GET /api/events/{id}` | S | — | `200` event | |
-| `PATCH /api/events/{id}` | S | Any event field. `isPrimary: true` moves the primary flag from the old event in the same transaction | `200` event | `VALIDATION_ERROR` (`muhuratAt` only on the primary event) |
+| `PATCH /api/events/{id}` | S | Any event field. `isPrimary: true` moves the primary flag from the old event in the same transaction. After the merge, `endsAt` must be later than `startsAt`. `muhuratAt` is allowed only on the primary event | `200` event | `VALIDATION_ERROR` |
 | `DELETE /api/events/{id}` | S | `?confirm=true` | `204` | `CONFIRMATION_REQUIRED` 409 with `details: { householdsInvited, rsvps }` when any household is invited. Retry with `confirm=true` |
 | `GET /api/events/{id}/attendance` | S | — | `200` attendance totals | |
 
@@ -381,7 +450,7 @@ Responses **never** contain `inviteToken` or a full invite URL. Only the `share`
 | `PATCH /api/households/{id}` | S | Any create field. `?confirm=true` | `200` household | `MAX_BELOW_ATTENDING`; `CONFIRMATION_REQUIRED` with `details: { rsvpsRemoved }` when removing a function that has an answer |
 | `DELETE /api/households/{id}` | S | — | `204`. Its RSVPs and pending jobs go too | |
 | `GET /api/households/{id}/share` | S | `kind` (`invite`, `please_rsvp`, `see_you_soon`), `eventId` (for the two reminders) | `200` `{ inviteUrl, message, waUrl }` | |
-| `POST /api/households/{id}/invite-email` | S | — | `200` `{ invitationEmailSentAt }`. Sends one email inside the request. Resend allowed | `NO_EMAIL`, `DEPENDENCY_UNAVAILABLE` |
+| `POST /api/households/{id}/invite-email` | S | — | `200` `{ invitationEmailSentAt }`. The timestamp is written only after Resend accepts the message. A failed send leaves the previous timestamp in place. Sending again is allowed | `NO_EMAIL`, `DEPENDENCY_UNAVAILABLE` |
 | `GET /api/households/{id}/ecard.png` | S | — | `200` `image/png`. Slice 5. Rendered on demand, not stored | |
 
 A household in a list:
@@ -423,6 +492,8 @@ The clock and the job rules are in DATABASE §5.14 and architecture §15.
 | `POST /api/reminders/send-now` | S | `{ eventId, kind, householdIds? }` (omit for every household the kind applies to) | `202` `{ batchId, enqueued, skipped: { noEmail } }` | `LIMIT_REACHED` |
 | `GET /api/reminders/batches/{batchId}` | S | — | `200` `{ total, pending, processing, sent, failed, skipped }` | |
 
+There is no retry-failed route. Send-now again creates a new `batchId`. A scheduled job that reaches `FAILED` stays there; the later slot (`1w`, `1d`) is a different `dedupeKey` and still sends. See-you-soon in v1 is the 1-day slot only. The PRD's optional 1-week see-you-soon mail is not a second automatic email.
+
 Copy-to-WhatsApp for a reminder is `GET /api/households/{id}/share?kind=please_rsvp&eventId=…`. Send-now is in addition to the schedule, never instead of it.
 
 ### 7.8 Tasks (slice 4)
@@ -430,12 +501,30 @@ Copy-to-WhatsApp for a reminder is `GET /api/households/{id}/share?kind=please_r
 | Endpoint | Who | Body / query | Success |
 |---|---|---|---|
 | `GET /api/tasks` | S | `page, limit, status, priority, assignee` (`me`, a userId, or `none`), `eventId`, `due` (`overdue`, `week`), `q` | `200` paged. Default order: not done first, then due date (undated last), then priority |
-| `POST /api/tasks` | S | `{ title, description?, status?, priority?, assigneeId?, eventId?, dueOn? }` | `201` task |
+| `POST /api/tasks` | S | `{ title, description?, status?, priority?, assigneeId?, eventId?, dueOn? }` | `201` task. `status` is `todo`, `doing`, or `done`. `priority` is `low`, `medium`, or `high`. Defaults are `todo` and `medium` |
 | `GET /api/tasks/{id}` | S | — | `200` task |
 | `PATCH /api/tasks/{id}` | S | Any field. Setting `status: "done"` stamps `completedAt` | `200` task |
 | `DELETE /api/tasks/{id}` | S | — | `204` |
 
 The filter tabs the PRD asks for map to parameters: All is none, Mine is `assignee=me`, Completed is `status=done`. `assigneeId` must belong to a member of this wedding (`VALIDATION_ERROR`, path `assigneeId`); so must `eventId`.
+
+```json
+{
+  "id": "…",
+  "title": "Confirm caterer",
+  "description": null,
+  "status": "todo",
+  "priority": "high",
+  "assigneeId": null,
+  "eventId": "…",
+  "dueOn": "2027-01-20",
+  "completedAt": null,
+  "createdAt": "…",
+  "updatedAt": "…"
+}
+```
+
+Setting `status` to `done` sets `completedAt` to now. Any other status clears `completedAt`. A later edit that leaves status at `done` keeps the original `completedAt`.
 
 ### 7.9 Expenses (slice 4)
 
@@ -448,7 +537,23 @@ The filter tabs the PRD asks for map to parameters: All is none, Mine is `assign
 | `PATCH /api/expenses/{id}` | S | Any field | `200` expense |
 | `DELETE /api/expenses/{id}` | S | — | `204` |
 
-`amountInr` is a whole number of rupees from 1 to 1,000,000,000. There are no budget fields anywhere in this API.
+`amountInr` is a whole number of rupees from 1 to 1,000,000,000. There are no budget fields anywhere in this API. `createdBy` is the current user and is not accepted in the body. `sumInr` on the list is the sum of every row matching the filters, including rows on other pages.
+
+```json
+{
+  "id": "…",
+  "title": "Caterer advance",
+  "amountInr": 250000,
+  "spentOn": "2027-01-04",
+  "category": "catering",
+  "eventId": null,
+  "vendorId": null,
+  "vendorLabel": "Sharma Caterers",
+  "notes": null,
+  "createdAt": "…",
+  "updatedAt": "…"
+}
+```
 
 ### 7.10 Vendors (slice 6)
 
@@ -461,7 +566,26 @@ The filter tabs the PRD asks for map to parameters: All is none, Mine is `assign
 | `DELETE /api/vendors/{id}` | S | — | `204`. Its expenses keep the name in `vendorLabel` | |
 | `GET /api/vendors/search` | S | `eventId` (venue coordinates are the centre), `category`, `radiusM` (default 5000, max 30000), `q?` | `200` `{ places: [{ googlePlaceId, name, rating, ratingCount, address, lat, lng, distanceM, phone?, website?, mapsUrl, savedVendorId? }] }` | `DISCOVERY_UNAVAILABLE` 503 |
 
-Search calls Places from the server with a field mask that asks only for these fields (cost control) and never returns the API key. `savedVendorId` is filled when a result is already in My vendors. The event must have a venue with coordinates, or the search is `VALIDATION_ERROR` on `eventId`. The guest function map has nothing to do with this route.
+Search calls Places from the server with a field mask that asks only for these fields (cost control) and never returns the API key. `savedVendorId` is filled when a result is already in My vendors. The event must have a venue with coordinates, or the search is `VALIDATION_ERROR` on `eventId`. The guest function map has nothing to do with this route. Saving from search sends `place.googlePlaceId` plus the coordinates; the server refetches the place and copies the fields it is willing to store. The client does not get to invent the name that lands on the row.
+
+```json
+{
+  "id": "…",
+  "name": "Lakeview Lawns",
+  "category": "venue",
+  "contactPerson": null,
+  "phone": "+911352345678",
+  "email": null,
+  "address": "Rajpur Road, Dehradun",
+  "website": null,
+  "agreedCostInr": null,
+  "eventIds": ["…"],
+  "notes": null,
+  "source": "places",
+  "createdAt": "…",
+  "updatedAt": "…"
+}
+```
 
 ### 7.11 Website and themes (slice 5, Admin only)
 
@@ -501,6 +625,7 @@ All routes here are `A`.
 - **Publish** needs a slug and at least one event. Unpublishing takes the public page down within the cache time of about a minute (§3).
 - **Live URL:** `https` only, on `youtube.com`, `youtu.be`, `youtube-nocookie.com`, or `vimeo.com`. The server parses the video id, stores the URL you gave, and builds the embed URL when rendering. `null` removes it.
 - **Theme:** `packId` must be a known pack. `overrides` is validated with a strict Zod schema built from the token model in the `indian-wedding-themes` skill. Media fields take an `uploadId`; the server swaps it for a stored reference.
+- **Who may edit this resource:** Admin only, including helplines, stay, families, Aashirwad, and the Live URL. Those fields are the public site. A Manager updates them by asking an Admin. Preview remains available to both roles.
 
 ### 7.12 Photos and videos (slice 7, organiser side)
 
@@ -509,10 +634,10 @@ All routes here are `A`.
 | `GET /api/gallery` | S | — | `200` `{ enabled, guestUploadEnabled, url, albums: [{ eventId, title, total, hidden }] }`. `eventId: null` is "Other / wedding memories". `url` is the stable `/g/{token}` link |
 | `PATCH /api/gallery` | S | `{ enabled?, guestUploadEnabled? }` | `200` |
 | `GET /api/gallery/qr` | S | `format` (`png`, `svg`), `size` (px, png only) | `200` the QR image, made on demand and not stored. Encodes `https://{host}/g/{token}` |
-| `GET /api/gallery/items` | S | `eventId` (an id, or `none` for Other), `hidden` (`true`, `false`, `all`; default `all`), `cursor`, `limit` | `200` cursor list |
+| `GET /api/gallery/items` | S | `eventId` (an id, or `none` for Other), `hidden` (`true`, `false`, `all`; default `all`), `cursor`, `limit` | `200` cursor list. The cursor is opaque and includes the filter. A cursor from another filter is `VALIDATION_ERROR`. Changing album or hidden-state starts again with no cursor |
 | `PATCH /api/gallery/items/{id}` | S | `{ hidden?, eventId? }` | `200` item |
-| `DELETE /api/gallery/items/{id}` | S | — | `204`. Deletes the row, then the object |
-| `GET /api/gallery/items/{id}/download` | S | — | `302` to a 5 minute signed URL with `Content-Disposition: attachment` |
+| `DELETE /api/gallery/items/{id}` | S | — | `204` after the object is gone and the row is deleted. If storage refuses the delete, the row stays and the response is `503` `STORAGE_DELETE_FAILED` |
+| `GET /api/gallery/items/{id}/download` | S | — | `200` `{ url, expiresAt }`. `url` is a 5-minute signed GET with `Content-Disposition: attachment`. The browser navigates to it. The app does not proxy the bytes |
 
 Uploading uses the generic protocol in §9 with `purpose: "gallery"`. An item:
 
@@ -522,7 +647,7 @@ Uploading uses the generic protocol in §9 with `purpose: "gallery"`. An item:
   "uploadedBy": "guest", "createdAt": "…" }
 ```
 
-Downloading many at once (a zip) is not in v1 (open item 6).
+Downloading many at once (a zip) is not in v1 (§15).
 
 ### 7.13 Preview as guest
 
@@ -557,7 +682,7 @@ No cookie is read. All send `Cache-Control: no-store`, `Referrer-Policy: no-refe
 }
 ```
 
-`live` is `null` when there is no URL or it cannot play. The site does not collect RSVPs and never contains the gallery token (architecture §6).
+`live` is `null` when there is no URL or it cannot play. The site does not collect RSVPs and never contains the gallery token (architecture §6). Cover, family photos, and theme media on this payload are stable public URLs under the `public/` key prefix (DATABASE §5.15). They are cacheable with the page. The gallery and every upload still in staging stay on signed URLs.
 
 ### 8.2 Member invitation preview
 
@@ -593,7 +718,7 @@ No cookie is read. All send `Cache-Control: no-store`, `Referrer-Policy: no-refe
 }
 ```
 
-Only the functions this household was invited to are present. No other family's name appears anywhere; `attending.total` is a number only. A guest invited only to Sangeet never receives another function's theme tokens. `galleryUrl` is `null` when the gallery is off. The whole route is `404` with a calm body for a token that does not exist, including one whose household was deleted.
+Only the functions this household was invited to are present. No other family's name appears anywhere; `attending.total` is a number only. A guest invited only to Sangeet never receives another function's theme tokens. `galleryUrl` is the stable gallery link when the gallery is enabled, and `null` when it is off. That is how a guest who was not handed the printed QR still reaches the shared album. The public site never includes this URL. The whole route is `404` with a calm body for a token that does not exist, including one whose household was deleted.
 
 `PUT /api/public/invite/{token}/rsvp`
 
@@ -612,6 +737,7 @@ Only the functions this household was invited to are present. No other family's 
 - `no`: `attendingCount` and `diet` are absent or zero.
 - Each listed function's answer is **replaced**. Functions not listed are untouched. Answering twice is an edit, not a duplicate (the unique `(householdId, eventId)` index).
 - All-or-nothing: everything is validated first, then written in one bulk operation. If any item is invalid, nothing is saved and `errors` names each bad item by `path`.
+- Each write is conditional on the household's current `maxPeople` still allowing `attendingCount`. If an organiser lowered the max after the page loaded, the response is `409` `MAX_CHANGED`, nothing is saved, and the client reloads the invite and keeps the draft on screen.
 
 `200` returns the updated `events[].rsvp` objects, so the page can re-render without another call.
 
@@ -674,10 +800,12 @@ The browser sends the bytes with the headers it was given, and reads the `ETag` 
 1. Loads the intent by `_id` and `weddingId` (and checks the gallery token and upload flag for guests). Unknown or expired: `UPLOAD_EXPIRED`.
 2. `HEAD`s the staging object. Length or `Content-Type` different from the intent, or ETag different from the client's: `UPLOAD_MISMATCH`.
 3. Reads the first bytes and checks the file signature against the declared type (JPEG, PNG, WebP, MP4, QuickTime, MP3). A mismatch is `UPLOAD_MISMATCH`, not a trusted browser claim.
-4. Copies staging to the final key, conditional on the ETag, then deletes staging.
-5. For `gallery`, inserts the `gallery_items` row and returns it. For every other purpose, marks the intent `completed` and returns `{ uploadId, contentType, bytes }`.
+4. Copies staging to a final key that is a pure function of `uploadId`, conditional on the ETag. Two callers therefore write the same object.
+5. For `gallery`, inserts the `gallery_items` row (`storageKey` unique). For every other purpose, records `finalKey` on the intent while it is still `issued`. A duplicate `storageKey` means the other caller already inserted; load that row and continue.
+6. Marks the intent `completed` with `findOneAndUpdate` from `issued`. The first caller wins. A second `complete` loads that result and returns it, including the gallery item when one exists.
+7. Deletes the staging object best-effort.
 
-A second `complete` for the same intent returns the same result. No row exists until step 5, so a failure anywhere before it leaves no half-published item, only an orphan object that the lifecycle rule and later cleanup remove.
+If the copy succeeds and the insert fails, the intent stays `issued`, so a retry hits the same final key and the unique `storageKey`. Abandoned staging objects expire by the bucket lifecycle. A completed intent lives 24 hours (DATABASE §5.15) so the client can still attach a cover or theme. A gallery row lives until an organiser deletes it. Do not put a TTL on `gallery_items`.
 
 ### Attaching to something
 
@@ -789,24 +917,33 @@ These add to architecture §23.
 3. A body with an unknown field, or with `weddingId`, `role`, or `userId`, is rejected and changes nothing.
 4. Wedding A's id in any path returns `404` on wedding B's session, for every resource type.
 5. `LAST_ADMIN` under concurrency: two Admins demote each other in parallel; exactly one succeeds.
-6. RSVP: over max, diet not adding up, an uninvited function, a duplicated `eventId`, and a mixed valid and invalid batch (nothing saved). A second valid answer replaces the first and leaves exactly one row.
+6. RSVP: over max, diet not adding up, an uninvited function, a duplicated `eventId`, and a mixed valid and invalid batch (nothing saved). A second valid answer replaces the first and leaves exactly one row. `MAX_CHANGED` saves nothing when `maxPeople` drops under the submitted count.
 7. The invite payload contains no other household's name, no other function's theme, and no other token. The household list contains no `inviteToken` anywhere.
 8. Signup, login, and forgot-password responses are identical in shape and close in timing for existing and unknown emails (except the required `EMAIL_TAKEN`).
 9. Reset token: single use, expires, and kills all sessions.
-10. Upload: mismatched length, wrong file signature, ETag changed between PUT and complete, expired intent, and a second `complete` all behave as §9 says.
-11. Cron routes: `401` without the secret; running the planner twice inserts each job once; two drains never send the same row twice.
-12. Deleting an event, household, vendor, or member leaves no dangling reference (DATABASE §7).
-13. Every list route respects `limit ≤ 100` and refuses deep pages.
+10. Upload: mismatched length, wrong file signature, ETag changed between PUT and complete, expired intent, and a second `complete` all behave as §9 says. Two completes in parallel publish one gallery row.
+11. Deleting a gallery item whose storage delete fails returns `503` and leaves the row. A retry after the object is gone returns `204`.
+12. Cron routes: `401` without the secret; running the planner twice inserts each job once; two drains never send the same row twice.
+13. Deleting an event, household, vendor, or member leaves no dangling reference (DATABASE §7).
+14. Every list route respects `limit ≤ 100` and refuses deep pages. A gallery cursor from another filter is `400`.
 
 ---
 
-## 15. Open items for review
+## 15. Decisions from the gap pass, and what is still open
 
-1. **Signup reveals which emails have accounts.** The PRD requires rejecting a duplicate email, which tells an outsider the address is registered. We rate-limit it. The clean fix is email-verified signup ("check your inbox"), which the architecture chose to skip in v1. Acceptable for now?
-2. **Joining requires the invited email.** If a parent signs up with a different address than the one the Admin typed, the join is refused and the Admin must invite the right address. Stricter than the PRD, and it stops a forwarded link from handing over the wedding. The alternative is any signed-in user with the token can join.
-3. **Who edits helplines, stay, families, Aashirwad** (Admin only here). DATABASE open item 1.
-4. **Large videos on phones.** A 100 MB video in one `PUT` restarts from zero if the network drops. S3 multipart upload fixes it and adds complexity to the protocol. Worth a spike before slice 7.
-5. **Gallery link on the invite.** `galleryUrl` in the invite payload is how a guest finds the gallery. The PRD says the gallery is for "people with the link" but does not say where they get it besides the QR. Confirm this is wanted.
-6. **Download everything.** A zip of the whole gallery needs a worker or a client-side zip. Not in v1; per-item download only.
-7. **Guest CSV import.** No endpoint yet. DATABASE open item 6.
-8. **Vercel plan.** Hourly and 5-minute crons need Pro (§10).
+### Decided on 4 Oct 2026
+
+1. **Signup may reveal that an email has an account** (`EMAIL_TAKEN`). The PRD requires the rejection. It is rate-limited. Email verification stays out of v1.
+2. **Joining requires the invited email.** A forwarded link does not let a different account join. The Admin invites the address the person will sign in with.
+3. **Helplines, stay, families, and Aashirwad are Admin-only**, with the rest of the website.
+4. **The personal invite includes `galleryUrl` when the gallery is enabled.** The public site does not.
+5. **Per-item download only.** A zip of the gallery is out of v1.
+6. **No guest CSV import** and no new Guests control for it. A later slice can add an action on the existing page without a schema change.
+7. **Password hashes are bcrypt, cost 12,** via a pure-JS implementation so the Vercel function has no native build. Argon2id waits until we leave serverless or confirm a native build.
+8. **Published cover, family, and theme media use a public-read key prefix.** Gallery objects stay private. Details in DATABASE §5.15.
+
+### Still open
+
+1. **Large videos on phones.** A 100 MB video in one `PUT` restarts from zero if the network drops. Decide on S3 multipart before slice 7, with a spike. The single-PUT protocol above is the v1 default until that spike says otherwise.
+2. **Vercel plan.** Hourly and 5-minute crons need Pro (§10), or an external scheduler calling the same routes.
+3. **Places storage terms** before slice 6. Until that check, a saved vendor stores `googlePlaceId` and the fields the organiser confirms. See DATABASE §12.
