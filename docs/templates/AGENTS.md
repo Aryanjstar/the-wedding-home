@@ -8,6 +8,7 @@ Under that block, write the project rules in a few short lines:
 - Where routes, feature modules, and server infrastructure live
 - The tenant rule, the money unit, and how secrets are stored
 - Slice order, and that empty future modules are not created
+- `docs/PROJECT_STATUS.md`: read it before building, and update it in the same change when a major feature lands. It tracks progress and does not override the four source-of-truth docs
 - Branch, cross-check, merge, push, and the journey log
 
 Do not paste another product's rules. If that product uses a different money unit, token scheme, or file layout, say what this product does instead.

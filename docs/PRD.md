@@ -1,7 +1,7 @@
 # The Wedding Home — Product Requirements Document
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.3  
+**Version:** 1.4  
 **Status:** Ready to build  
 **Date:** 30 Sep 2026 (first written 20 Sep 2026)  
 **Audience:** Anyone implementing or reviewing a slice
@@ -16,6 +16,8 @@ This PRD is the build-ready expansion of the locked plan. It does not invent pag
 | [PLAYBOOK.md](./PLAYBOOK.md) | How we got here; how to do the next idea |
 
 Build in the order in §8. Do not add navigation that is not in the page map.
+
+**v1.4:** RSVP diet is three headcounts: veg, non-veg, and Jain. No separate no-onion-garlic count. Website and Members stay Admin-only and hidden from a Manager. RSVP stays on the personal invite, not a tab on the public home. See §6, FR-2.3, §12, §18.
 
 **v1.3:** Three product choices made while starting the database design: RSVP diet is a headcount per category; the Aashirwad wall is written by the family only; Meet the families is two structured entries. See §7, FR-2.3, FR-2.5, §12, §18.
 
@@ -47,7 +49,7 @@ What a family actually needs the night before:
 
 - When is the muhurat
 - Who is coming to *this* function, as a number
-- Veg / non-veg / Jain / no onion-garlic for the caterer
+- Veg / non-veg / Jain for the caterer
 - Who an outstation cousin calls when they are lost at the gate
 - A picture dadi can forward on WhatsApp if she will not open a link
 
@@ -167,7 +169,7 @@ Conceptual. Not a schema.
 
 **Household (guest)** — display name, side (bride / groom / other), max people, events invited, secret invite token, optional email, optional phone, notes, invitation-sent flag (email). One invitation = one household, not every individual.
 
-**RSVP** — household, per invited event: status (`silent` | `yes` | `no`), attending count (≤ max), and when `yes` a **diet headcount**: how many of the attending people are veg, non-veg, Jain, no onion-garlic (the four numbers add up to the attending count). `silent` means no answer yet. Later edits via the same link replace the previous answer.
+**RSVP** — household, per invited event: status (`silent` | `yes` | `no`), attending count (≤ max), and when `yes` a **diet headcount**: how many of the attending people are veg, non-veg, and Jain (the three numbers add up to the attending count). `silent` means no answer yet. Later edits via the same link replace the previous answer.
 
 **Task** — title, optional description, status (`todo` | `doing` | `done`), priority (`low` | `medium` | `high`), assignee (member), optional event, optional due date. No comments, attachments, subtasks, or dependencies.
 
@@ -268,8 +270,8 @@ Unguessable secret URL per household, identifying wedding, household, and invite
 **AC:** Opens a named invitation with no login (couple names, welcome, their events, RSVP). Invalid/expired/unknown token → a calm error, not another family’s invite. Public slug is not this link.
 
 **FR-2.3 RSVP**  
-Per invited event: yes/no; if yes, attending count 1…max, split into a headcount for each diet: veg, non-veg, Jain, no onion-garlic. Same link can change the answer later (replace, do not duplicate).  
-**AC:** Uninvited events hidden. Cannot choose more people than max. Diet is a headcount per category, not a single “vegetarian” checkbox, and the four numbers must add up to the attending count. No account.
+Per invited event: yes/no; if yes, attending count 1…max, split into a headcount for each diet: veg, non-veg, and Jain. Same link can change the answer later (replace, do not duplicate).  
+**AC:** Uninvited events hidden. Cannot choose more people than max. Diet is a headcount per category, not a single “vegetarian” checkbox, and the three numbers must add up to the attending count. No account.
 
 **FR-2.4 Attending counts**  
 Guest surfaces show **how many**, not other families’ names.  
@@ -419,7 +421,7 @@ Skill: `indian-wedding-themes`.
 | Field | Where | Notes |
 |---|---|---|
 | Muhurat | Primary wedding event + dashboard | A minute, not a day |
-| Veg / non-veg / Jain / no onion-garlic | RSVP on personal invite, as a headcount per diet | Catering is politics, and families are mixed |
+| Veg / non-veg / Jain | RSVP on personal invite, as a headcount per diet | Catering is politics, and families are mixed |
 | Helpline bride side / groom side | Public site + invite footer | Lost at the farmhouse gate |
 | How to reach, parking, what not to wear | Each function page | White sarees, heels in lawns, wrong gate |
 | Venue map → Google Maps | Each event, below the address | Tap and go |
@@ -549,7 +551,9 @@ Do not reopen in implementation without an explicit product change:
 - Expenses = spend log with categories, **not** a budget  
 - Gallery = shared photos and videos, optional albums by function, stable QR  
 - Theme studio grows on one token model (not three generic skins)  
-- RSVP diet is a headcount per category, summing to the attending count  
+- RSVP diet is three headcounts — veg, non-veg, and Jain — summing to the attending count. No separate no-onion-garlic count
+- Website and Members are Admin-only. A Manager's nav hides both. The family screens in Stitch are the Admin workspace
+- RSVP is only on the personal invite. The public home has no RSVP tab  
 - Aashirwad wall is written by the family only; guests cannot submit  
 - Meet the families is two entries (bride side, groom side)  
 - One user, one wedding  

@@ -1,5 +1,7 @@
 import mongoose, { type Model } from "mongoose";
 
+import { collectionModels } from "@/server/db/schemas";
+
 mongoose.set("strictQuery", true);
 mongoose.set("autoIndex", false);
 mongoose.set("autoCreate", false);
@@ -8,4 +10,4 @@ mongoose.set("autoCreate", false);
  * Slice modules push their Mongoose models here.
  * `npm run db:indexes` syncs this list. Indexes are not built on connect.
  */
-export const registeredModels: Model<unknown>[] = [];
+export const registeredModels: Model<unknown>[] = collectionModels;

@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "next typegen && tsc --noEmit",
+    "typecheck": "NODE_OPTIONS='--max-old-space-size=8192' next typegen && NODE_OPTIONS='--max-old-space-size=8192' tsc --noEmit --pretty false -p tsconfig.typecheck.json",
     "test": "vitest run",
     "db:indexes": "tsx --conditions=react-server scripts/db-indexes.ts"
   },

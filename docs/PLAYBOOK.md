@@ -122,7 +122,7 @@ Ask:
 
 **Write:** `docs/DATABASE.md` from [templates/DATABASE.md](./templates/DATABASE.md). Derive it from the PRD and the architecture. Do not invent a field the PRD does not have.
 
-**The Wedding Home example:** Households and RSVPs are separate. Diet is four integers on the RSVP. Gallery bytes stay in S3.
+**The Wedding Home example:** Households and RSVPs are separate. Diet is three integers on the RSVP: veg, non-veg, and Jain. Gallery bytes stay in S3.
 
 ---
 
@@ -202,7 +202,7 @@ Follow [templates/STITCH.md](./templates/STITCH.md). Lock the palette before the
 
 Stitch output is not the PRD. If a screen drops a field, write that down and leave the four docs alone until the human asks for the change.
 
-**The Wedding Home example:** 5–6 Oct 2026. Bone, charcoal, pewter, then wine as the accent. No floral stock and no invite-card pink. Twenty-two loose prompts did not connect. The prototype counts three diets; the docs still store four, including no onion-garlic.
+**The Wedding Home example:** 5–6 Oct 2026. Bone, charcoal, pewter, then wine as the accent. No floral stock and no invite-card pink. Twenty-two loose prompts did not connect. On 10 Oct 2026 the human locked the prototype's three diets: veg, non-veg, and Jain.
 
 ---
 
@@ -219,6 +219,8 @@ For The Wedding Home the slices are in PRODUCT.md. For any product:
 7. Deploy, measure, harden
 
 A slice is done when a human can finish that job in the UI. Start that slice on a branch, cross-check it, merge to `main`, and push. Record what you learned. If the next product would do the same thing, add it to this playbook or to `docs/templates/` before you call the slice done.
+
+Keep `docs/PROJECT_STATUS.md` in that same change. A new session reads it first. Say whether a milestone is mock UI or working end to end, and leave the earlier milestones in place. It is the progress log, not a second PRD.
 
 ---
 
@@ -256,6 +258,7 @@ Ship a public URL early even if only slice 1 works. After every deploy, one jour
 - [ ] Name chosen
 - [ ] Repo + journey log started
 - [ ] `AGENTS.md` names the four source-of-truth files. `CLAUDE.md` points at it
+- [ ] `docs/PROJECT_STATUS.md` exists and is updated when a major feature lands
 - [ ] Shell scaffolded and proven locally ([templates/SCAFFOLD.md](./templates/SCAFFOLD.md))
 - [ ] Screens drawn in Stitch from the page map ([templates/STITCH.md](./templates/STITCH.md))
 - [ ] First slice defined in one sentence

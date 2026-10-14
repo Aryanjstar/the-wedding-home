@@ -20,4 +20,5 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - `weddingId` comes from the membership, never from the request body. Another wedding's id is `NOT_FOUND`.
 - Money is integer rupees. Passwords are bcrypt cost 12. Session and one-time tokens are stored as SHA-256 hashes. Household and gallery links stay retrievable and are never logged.
 - Do not add Redis, GraphQL, microservices, or a new dependency without a reason already written in the architecture.
+- Read `docs/PROJECT_STATUS.md` before building. Update it in the same change when a major feature is added or materially changed: status, date, what shipped, how it was checked, and what is still mock or unfinished. Keep mock UI separate from working backend features. This file tracks progress. It does not override the four source-of-truth docs.
 - Build one PRODUCT.md slice at a time, on a branch. Cross-check tests and the four docs, merge to `main`, and push. Record the step in the journey log, and update the playbook or `docs/templates/` when the step taught a repeatable method.

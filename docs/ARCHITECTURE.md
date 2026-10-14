@@ -276,7 +276,7 @@ A household is wedding data, not a user. It has no password and no session. One 
   → later submit replaces the previous RSVP
 ```
 
-Diet is a headcount in each of veg, non-veg, Jain, and no onion-garlic, and the four numbers add up to the attending count. The count cannot exceed the household max. Uninvited events are not in the payload the server will accept.
+Diet is a headcount in each of veg, non-veg, and Jain, and the three numbers add up to the attending count. The count cannot exceed the household max. Uninvited events are not in the payload the server will accept.
 
 The invite token is a stable, high-entropy random value stored on the household so organisers can copy the same URL again for WhatsApp, email, and the e-card. It is excluded from logs, from guest-facing JSON, and from any response except the organiser action that copies or sends that household's link. Session ids, password-reset tokens, and member-invite tokens stay hashed. Those can be rotated. The household link cannot, or printed and forwarded messages break.
 

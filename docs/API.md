@@ -432,7 +432,7 @@ The theme override is not on this resource. It is Admin-only and lives at `PUT /
   "silent": 31,
   "no": 9,
   "yes": { "households": 80, "attending": 214,
-           "diet": { "veg": 120, "nonVeg": 70, "jain": 14, "noOnionGarlic": 10 } }
+           "diet": { "veg": 130, "nonVeg": 70, "jain": 14 } }
 }
 ```
 
@@ -462,7 +462,7 @@ A household in a list:
   "invitationEmailSentAt": null,
   "rsvps": [
     { "eventId": "…", "status": "yes", "attendingCount": 3,
-      "diet": { "veg": 2, "nonVeg": 1, "jain": 0, "noOnionGarlic": 0 }, "respondedAt": "…" },
+      "diet": { "veg": 2, "nonVeg": 1, "jain": 0 }, "respondedAt": "…" },
     { "eventId": "…", "status": "silent" }
   ],
   "createdAt": "…", "updatedAt": "…"
@@ -726,14 +726,14 @@ Only the functions this household was invited to are present. No other family's 
 {
   "responses": [
     { "eventId": "…", "status": "yes", "attendingCount": 3,
-      "diet": { "veg": 2, "nonVeg": 1, "jain": 0, "noOnionGarlic": 0 } },
+      "diet": { "veg": 2, "nonVeg": 1, "jain": 0 } },
     { "eventId": "…", "status": "no" }
   ]
 }
 ```
 
 - Every `eventId` must be one the household was invited to (`EVENT_NOT_INVITED`) and appear once.
-- `yes`: `1 ≤ attendingCount ≤ maxPeople` (`RSVP_OVER_MAX`), and the four diet numbers are integers ≥ 0 that add up to `attendingCount` (`DIET_MISMATCH`).
+- `yes`: `1 ≤ attendingCount ≤ maxPeople` (`RSVP_OVER_MAX`), and the three diet numbers are integers ≥ 0 that add up to `attendingCount` (`DIET_MISMATCH`).
 - `no`: `attendingCount` and `diet` are absent or zero.
 - Each listed function's answer is **replaced**. Functions not listed are untouched. Answering twice is an edit, not a duplicate (the unique `(householdId, eventId)` index).
 - All-or-nothing: everything is validated first, then written in one bulk operation. If any item is invalid, nothing is saved and `errors` names each bad item by `path`.

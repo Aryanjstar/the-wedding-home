@@ -23,3 +23,6 @@ yarn-error.log*
 # Private working log (how the project was made). Local only, not published.
 docs/journey/
 .cursor/rules/journey-log.mdc
+
+# Stitch MCP config holds an API key. Keep it on this machine.
+.cursor/mcp.json

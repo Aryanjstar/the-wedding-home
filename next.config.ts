@@ -13,6 +13,8 @@ const nextConfig: NextConfig = {
       ignore: [
         /^\/i\//,
         /^\/g\//,
+        /^\/join\//,
+        /^\/reset-password\/.+/,
         /^\/api\/public\/invite\//,
         /^\/api\/public\/gallery\//,
         /^\/api\/public\/member-invite\//,
@@ -36,6 +38,8 @@ const nextConfig: NextConfig = {
       { source: "/:path*", headers: shared },
       { source: "/i/:path*", headers: tokenHeaders },
       { source: "/g/:path*", headers: tokenHeaders },
+      { source: "/join/:path*", headers: tokenHeaders },
+      { source: "/reset-password/:token", headers: tokenHeaders },
       { source: "/api/public/invite/:path*", headers: tokenHeaders },
       { source: "/api/public/gallery/:path*", headers: tokenHeaders },
       { source: "/api/public/member-invite/:path*", headers: tokenHeaders },

@@ -67,7 +67,7 @@ Place       { name?, address, city, googlePlaceId?,
             GeoJSON order is longitude first. The API speaks { lat, lng } and the
             repository converts both ways so no other code touches the order.
 
-Diet        { veg, nonVeg, jain, noOnionGarlic }   four integers >= 0
+Diet        { veg, nonVeg, jain }   three integers >= 0
 
 ThemeOverride   a partial ThemeTokens object as defined in the indian-wedding-themes skill.
                 Media fields hold a MediaRef, not a URL. URLs are signed at render time.
@@ -181,7 +181,7 @@ Create the model in the slice that first writes it. Slice 1 dashboard counts for
 | Venue and place | **Embedded in `events`** | One per event, never queried on its own |
 | Households' invited events | **Array of ids on `households`**, ≤ 30 | Bounded by the event cap. Read with the household. Multikey index answers "who is invited to Sangeet" |
 | RSVPs | **Own collection** | One per household per function. Counted and summed per function. Would be ~8,000 subdocuments if embedded |
-| Diet headcounts | **Embedded object on `rsvps`** | Four integers, always read and summed together |
+| Diet headcounts | **Embedded object on `rsvps`** | Three integers, always read and summed together |
 | Tasks, expenses, vendors, gallery items | **Own collections** | Unbounded and filtered independently |
 | Vendor ↔ event links | **Array of ids on `vendors`** | Bounded by the event cap |
 | Role and wedding of a user | **`memberships` row**, not on `users` | The membership is the proof of access (architecture §10). Removing a member deletes one row and leaves the account |
@@ -381,7 +381,7 @@ One document per household per function, created on the first answer. **A missin
 | `eventId` | ObjectId | yes | Must be in the household's `invitedEventIds` |
 | `status` | `yes` or `no` | yes | |
 | `attendingCount` | int | yes | `no` → 0. `yes` → 1 to the household's `maxPeople` |
-| `diet` | Diet | yes | `no` → all zeros. `yes` → the four numbers add up to `attendingCount` |
+| `diet` | Diet | yes | `no` → all zeros. `yes` → the three numbers add up to `attendingCount` |
 | `respondedAt` | Date | yes | First answer |
 | `updatedAt` | Date | yes | Last edit |
 
@@ -394,7 +394,7 @@ Per-function totals are one aggregation over this index:
 ```text
 match   weddingId, eventId, status "yes"
 group   households: count, attending: sum(attendingCount),
-        veg: sum(diet.veg), nonVeg: sum(diet.nonVeg), jain: sum(diet.jain), noOnionGarlic: sum(diet.noOnionGarlic)
+        veg: sum(diet.veg), nonVeg: sum(diet.nonVeg), jain: sum(diet.jain)
 ```
 
 "Silent for function E" is the households with E in `invitedEventIds` that have no `yes` or `no` row for E. At 1,000 households that is one indexed query on each side and a set difference in the service.
@@ -701,7 +701,7 @@ Index memory: the largest indexes are `rsvps` and `gallery_items`, tens of megab
 
 | # | Decision | Why |
 |---|---|---|
-| 1 | Diet is a headcount object on the RSVP (`veg`, `nonVeg`, `jain`, `noOnionGarlic`), summing to the attending count | Chosen with the owner. Families are mixed; a caterer needs numbers |
+| 1 | Diet is a headcount object on the RSVP (`veg`, `nonVeg`, `jain`), summing to the attending count | Chosen with the owner on 10 Oct 2026. Families are mixed; a caterer needs these three numbers |
 | 2 | `silent` is the absence of an RSVP document | One source of truth for who is invited (`invitedEventIds`) |
 | 3 | Site content lives in a `site` subdocument, Admin-only to write | Mirrors the Admin-only Website page, one write path to guard |
 | 4 | `adminCount` on the wedding for the last-Admin rule | One atomic conditional write beats count-then-delete under concurrency |

@@ -43,7 +43,7 @@ Last Admin cannot leave until another Admin exists.
 
 - Open their wedding invitation
 - See only events they are invited to
-- RSVP (family count, veg / non-veg / Jain / no onion-garlic)
+- RSVP (family count, veg / non-veg / Jain)
 - See **how many** people are attending those events (numbers, not other families’ names)
 - View wedding information (story, timeline, helplines, stay list)
 - Venue **map** on each function (shown on the event, below the address). Tap pin or Open in Google Maps to go there
@@ -76,7 +76,7 @@ Wedding pack + per-function override. Packs: traditional, classical, art, choreo
 
 ## Shaadi fields (not extra menus)
 
-Muhurat · diet on RSVP (veg / non-veg / Jain / no onion-garlic) · two helplines · how to reach / parking / what not to wear · venue map → Google Maps on each function · Share on WhatsApp (prefilled + unique invite URL) · suggested stay as text · meet the families · 3–4 lines what this function is · aashirwad wall · WhatsApp e-card image · optional blessings-only / UPI note
+Muhurat · diet on RSVP (veg / non-veg / Jain) · two helplines · how to reach / parking / what not to wear · venue map → Google Maps on each function · Share on WhatsApp (prefilled + unique invite URL) · suggested stay as text · meet the families · 3–4 lines what this function is · aashirwad wall · WhatsApp e-card image · optional blessings-only / UPI note
 
 ## Not this version
 
