@@ -15,7 +15,7 @@ export async function sendGalleryFile(file: File, target: {
     const blob = await upload(`${target.prefix}/${safeName}`, file, {
       access: "public",
       handleUploadUrl: target.handleUrl,
-      clientPayload: JSON.stringify({ contentType: file.type }),
+      clientPayload: JSON.stringify({ contentType: file.type, ...(target.eventId ? { eventId: target.eventId } : {}) }),
       multipart: file.size > 4_500_000,
     });
     const response = await fetch(target.registerUrl, {

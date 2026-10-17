@@ -33,8 +33,11 @@ export async function runGalleryUpload(request: Request, body: HandleUploadBody,
         throw new ServiceError(403, "FORBIDDEN", "FORBIDDEN", "That upload is for another wedding.");
       }
       let video = false;
+      let eventId: string | null = null;
       try {
-        video = JSON.parse(clientPayload ?? "{}").contentType?.startsWith("video/") === true;
+        const payload = JSON.parse(clientPayload ?? "{}") as { contentType?: string; eventId?: unknown };
+        video = payload.contentType?.startsWith("video/") === true;
+        eventId = typeof payload.eventId === "string" && /^[a-f0-9]{24}$/i.test(payload.eventId) ? payload.eventId : null;
       } catch {
         video = false;
       }
@@ -46,11 +49,12 @@ export async function runGalleryUpload(request: Request, body: HandleUploadBody,
           weddingId: scope.weddingId,
           actor: scope.uploadedBy.type,
           userId: scope.uploadedBy.userId ? String(scope.uploadedBy.userId) : null,
+          eventId,
         }),
       };
     },
     onUploadCompleted: async ({ blob, tokenPayload }) => {
-      const payload = JSON.parse(tokenPayload ?? "{}") as { weddingId?: string; actor?: "organiser" | "guest"; userId?: string | null };
+      const payload = JSON.parse(tokenPayload ?? "{}") as { weddingId?: string; actor?: "organiser" | "guest"; userId?: string | null; eventId?: string | null };
       if (!payload.weddingId) return;
       const wedding = await WeddingModel.findById(payload.weddingId);
       if (!wedding) return;
@@ -61,6 +65,7 @@ export async function runGalleryUpload(request: Request, body: HandleUploadBody,
         weddingId: wedding._id,
         url: blob.url,
         pathname: blob.pathname,
+        eventId: payload.eventId,
         uploadedBy: { type: payload.actor === "guest" ? "guest" : "organiser", userId },
       });
     },
