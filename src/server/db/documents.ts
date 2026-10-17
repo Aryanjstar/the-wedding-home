@@ -49,6 +49,14 @@ export interface WeddingDoc {
     publishedAt?: Date | null;
     theme?: { packId?: string };
     liveUrl?: string | null;
+    stay?: string | null;
+    helplines?: Array<{ side: "bride" | "groom"; name: string; phone: string }>;
+    families?: {
+      bride?: { heading?: string | null; blurb?: string | null } | null;
+      groom?: { heading?: string | null; blurb?: string | null } | null;
+    } | null;
+    aashirwad?: Array<{ _id: Id; author: string; relation?: string | null; message: string; createdAt: Date }>;
+    giftNote?: string | null;
   };
   gallery: {
     token: string;
@@ -85,6 +93,12 @@ export interface InvitationDoc {
   updatedAt: Date;
 }
 
+export interface ThemeOverrideDoc {
+  world?: string | null;
+  accent?: string | null;
+  music?: string | null;
+}
+
 export interface EventDoc {
   weddingId: Id;
   kind: "roka" | "engagement" | "mehendi" | "haldi" | "sangeet" | "cocktail" | "wedding" | "reception" | "custom";
@@ -103,6 +117,7 @@ export interface EventDoc {
   dressNote?: string | null;
   howToReach?: string | null;
   parking?: string | null;
+  themeOverride?: ThemeOverrideDoc | null;
   schemaVersion: number;
   createdAt: Date;
   updatedAt: Date;
@@ -162,6 +177,7 @@ export interface ExpenseDoc {
   spentOn: string;
   category: string;
   eventId?: Id | null;
+  vendorId?: Id | null;
   vendorLabel?: string | null;
   notes?: string | null;
   createdBy: Id;
@@ -177,8 +193,12 @@ export interface VendorDoc {
   contactPerson?: string | null;
   phone?: string | null;
   email?: string | null;
+  website?: string | null;
+  address?: string | null;
   agreedCostInr?: number | null;
+  eventIds?: Id[];
   notes?: string | null;
+  place?: { googlePlaceId?: string | null; rating?: number | null } | null;
   source: "manual" | "places";
   createdBy: Id;
   schemaVersion: number;
@@ -216,4 +236,24 @@ export interface RateLimitDoc {
   _id: string;
   count: number;
   expireAt: Date;
+}
+
+export interface EmailJobDoc {
+  weddingId: Id;
+  kind: "please_rsvp" | "see_you_soon";
+  origin: "scheduled" | "send_now";
+  householdId: Id;
+  eventId: Id;
+  dedupeKey: string;
+  batchId?: Id | null;
+  status: "PENDING" | "PROCESSING" | "SENT" | "FAILED" | "SKIPPED";
+  runAfter: Date;
+  attempts: number;
+  lockedAt?: Date | null;
+  lastError?: string | null;
+  sentAt?: Date | null;
+  expireAt?: Date | null;
+  schemaVersion: number;
+  createdAt: Date;
+  updatedAt: Date;
 }

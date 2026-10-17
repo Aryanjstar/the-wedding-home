@@ -3,7 +3,6 @@ import "server-only";
 import mongoose from "mongoose";
 
 import { instantInIndia } from "@/data/india-time";
-import { SAMPLE_PASSWORD_HASH } from "@/data/preview";
 import { connectToDatabase } from "@/server/db/connection";
 import { registeredModels } from "@/server/db/models";
 import {
@@ -19,6 +18,9 @@ import {
   WeddingModel,
 } from "@/server/db/schemas";
 import { randomToken } from "@/server/auth/session";
+
+/** bcrypt cost 12 of the word "preview". Seeded sample organisers only, on the dev database. */
+const SAMPLE_PASSWORD_HASH = "$2b$12$/.ezbPzjlwkYVj4Kd8av3OAIpw3Arhr3MDnrzGqFa75XANSNo7Tj6";
 
 const organisers = [
   { name: "Aanya Sharma", email: "aanya@example.com", role: "admin" as const },

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { Mark } from "@/components/mark";
-import { usePreview } from "@/components/preview-session";
+import { useSession } from "@/components/session";
 
 const links = [
   ["Week", "/w/aanya-and-kabir#week"],
@@ -17,7 +17,7 @@ const links = [
 
 export function GuestChrome({ children, current }: { children: ReactNode; current?: string }) {
   const [open, setOpen] = useState(false);
-  const { person } = usePreview();
+  const { person } = useSession();
 
   return (
     <>

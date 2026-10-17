@@ -2,180 +2,26 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { play, type Performance } from "@/components/guest/sound-engine";
 import { functionWorlds, type MotifId } from "@/data/function-worlds";
+import type { MusicId } from "@/data/worlds";
 import type { FunctionId } from "@/data/sample";
 
-const ratios = {
-  S: 1,
-  R: 9 / 8,
-  G: 5 / 4,
-  g: 6 / 5,
-  M: 4 / 3,
-  m: 45 / 32,
-  P: 3 / 2,
-  D: 5 / 3,
-  n: 16 / 9,
-  N: 15 / 8,
-  S2: 2,
-} as const;
-
-type Degree = keyof typeof ratios;
-type Note = { degree: Degree; beats: number };
-
-const pieces: Record<FunctionId, { sa: number; bpm: number; melody: Note[]; pulse: "dhol" | "dadra" | "tabla" | "bell" | "none" }> = {
-  haldi: {
-    sa: 220,
-    bpm: 112,
-    pulse: "dhol",
-    melody: [
-      { degree: "S", beats: 1 },
-      { degree: "R", beats: 1 },
-      { degree: "G", beats: 1 },
-      { degree: "P", beats: 1 },
-      { degree: "G", beats: 1 },
-      { degree: "R", beats: 1 },
-      { degree: "S", beats: 2 },
-    ],
-  },
-  mehendi: {
-    sa: 174.61,
-    bpm: 72,
-    pulse: "dadra",
-    melody: [
-      { degree: "S", beats: 2 },
-      { degree: "n", beats: 1 },
-      { degree: "D", beats: 1 },
-      { degree: "P", beats: 2 },
-      { degree: "M", beats: 1 },
-      { degree: "g", beats: 1 },
-      { degree: "R", beats: 2 },
-      { degree: "S", beats: 2 },
-    ],
-  },
-  sangeet: {
-    sa: 196,
-    bpm: 138,
-    pulse: "tabla",
-    melody: [
-      { degree: "N", beats: 0.5 },
-      { degree: "R", beats: 0.5 },
-      { degree: "G", beats: 0.5 },
-      { degree: "m", beats: 0.5 },
-      { degree: "P", beats: 1 },
-      { degree: "D", beats: 0.5 },
-      { degree: "N", beats: 0.5 },
-      { degree: "S2", beats: 1 },
-    ],
-  },
-  wedding: {
-    sa: 146.83,
-    bpm: 52,
-    pulse: "bell",
-    melody: [
-      { degree: "S", beats: 2 },
-      { degree: "R", beats: 2 },
-      { degree: "G", beats: 2 },
-      { degree: "P", beats: 2 },
-      { degree: "G", beats: 2 },
-      { degree: "R", beats: 2 },
-      { degree: "S", beats: 4 },
-    ],
-  },
-  reception: {
-    sa: 110,
-    bpm: 60,
-    pulse: "none",
-    melody: [],
-  },
+const music: Record<FunctionId, MusicId> = {
+  haldi: "bilawal-dhol",
+  mehendi: "bhimpalasi-dadra",
+  sangeet: "yaman-teental",
+  wedding: "shankarabharanam-nadaswaram",
+  reception: "tanpura",
 };
 
-type Performance = { stop: () => void };
-
 function startPiece(kind: FunctionId): Performance {
-  const piece = pieces[kind];
   const context = new AudioContext();
-  const master = context.createGain();
-  master.gain.value = kind === "reception" ? 0.07 : 0.09;
-  master.connect(context.destination);
-  const oscillators: OscillatorNode[] = [];
-
-  function drone(ratio: number, amount: number, type: OscillatorType) {
-    const tone = context.createOscillator();
-    tone.type = type;
-    tone.frequency.value = piece.sa * ratio;
-    const gain = context.createGain();
-    gain.gain.value = amount;
-    tone.connect(gain);
-    gain.connect(master);
-    tone.start();
-    oscillators.push(tone);
-  }
-
-  drone(1, kind === "reception" ? 0.55 : 0.22, "sine");
-  drone(ratios.P, kind === "reception" ? 0.28 : 0.08, "sine");
-  if (kind !== "haldi") drone(2, 0.05, "triangle");
-
-  const beat = 60 / piece.bpm;
-  const cycle = piece.melody.reduce((sum, note) => sum + note.beats, 0) || 8;
-
-  function strike(time: number, frequency: number, amount: number, decay: number) {
-    const tone = context.createOscillator();
-    tone.type = "sine";
-    tone.frequency.setValueAtTime(frequency, time);
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(amount, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + decay);
-    tone.connect(gain);
-    gain.connect(master);
-    tone.start(time);
-    tone.stop(time + decay + 0.02);
-  }
-
-  function sing(time: number, ratio: number, duration: number) {
-    const tone = context.createOscillator();
-    const filter = context.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.value = kind === "wedding" ? 880 : kind === "sangeet" ? 2200 : 1400;
-    tone.type = kind === "wedding" ? "sawtooth" : kind === "mehendi" ? "triangle" : "sine";
-    const startFrequency = piece.sa * ratio;
-    tone.frequency.setValueAtTime(startFrequency * (kind === "wedding" ? 0.985 : 1), time);
-    if (kind === "wedding") tone.frequency.linearRampToValueAtTime(startFrequency, time + duration * 0.65);
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(kind === "sangeet" ? 0.16 : 0.12, time + 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + duration);
-    tone.connect(filter);
-    filter.connect(gain);
-    gain.connect(master);
-    tone.start(time);
-    tone.stop(time + duration + 0.05);
-  }
-
-  function bar(origin: number) {
-    let cursor = 0;
-    piece.melody.forEach((note) => {
-      sing(origin + cursor * beat, ratios[note.degree], note.beats * beat * 0.92);
-      cursor += note.beats;
-    });
-    const beats = Math.round(cycle);
-    for (let step = 0; step < beats; step += 1) {
-      const time = origin + step * beat;
-      if (piece.pulse === "dhol" && step % 2 === 0) strike(time, step % 4 === 0 ? 90 : 140, 0.2, 0.12);
-      if (piece.pulse === "dadra" && step % 3 === 0) strike(time, 180, 0.05, 0.08);
-      if (piece.pulse === "tabla") strike(time, step % 4 === 0 ? 160 : 240, step % 2 === 0 ? 0.08 : 0.03, 0.05);
-      if (piece.pulse === "bell" && step % 4 === 0) strike(time, 523.25, 0.06, 0.9);
-    }
-  }
-
-  const origin = context.currentTime + 0.05;
-  bar(origin);
-  const timer = window.setInterval(() => bar(context.currentTime + 0.05), cycle * beat * 1000);
-
+  const performance = play(music[kind], context, context.destination);
   return {
     stop: () => {
-      window.clearInterval(timer);
-      oscillators.forEach((tone) => tone.stop());
-      void context.close();
+      performance.stop(0.4);
+      window.setTimeout(() => void context.close(), 600);
     },
   };
 }

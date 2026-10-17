@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { Tasks } from "@/components/workspace/views";
+import { TasksPage } from "@/components/workspace/tasks";
 
 export const metadata: Metadata = { title: "Tasks · The Wedding Home" };
 
-export default function TasksPage() {
-  return <Tasks />;
+export default function Page() {
+  return <TasksPage />;
 }

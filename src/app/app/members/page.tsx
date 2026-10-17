@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { Members } from "@/components/workspace/views";
+import { MembersPage } from "@/components/workspace/settings";
 
 export const metadata: Metadata = { title: "Members · The Wedding Home" };
 
-export default function MembersPage() {
-  return <Members />;
+export default function Page() {
+  return <MembersPage />;
 }

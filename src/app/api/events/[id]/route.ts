@@ -1,15 +1,8 @@
-import { createRequestId } from "@/server/http/request-id";
-import { assertSameOrigin, empty, toProblem } from "@/server/http/handle";
-import { deleteEvent } from "@/modules/home/service";
+import { deleteEvent, readEvent, updateEvent } from "@/modules/events/service";
+import { query, route } from "@/server/http/route";
 
-export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
-  const requestId = createRequestId();
-  try {
-    assertSameOrigin(request);
-    const { id } = await context.params;
-    await deleteEvent(request, id);
-    return empty(204, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const GET = route<{ id: string }>((request, { id }) => readEvent(request, id));
+
+export const PATCH = route<{ id: string }>((request, { id }, body) => updateEvent(request, id, body));
+
+export const DELETE = route<{ id: string }>((request, { id }) => deleteEvent(request, id, query(request).get("confirm") === "true"));

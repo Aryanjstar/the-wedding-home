@@ -11,7 +11,8 @@ import { clientIp, consumeRateLimit } from "@/server/http/rate-limit";
 const SERVER_CAP = 4_000_000;
 const IMAGE_CAP = 15_000_000;
 const VIDEO_CAP = 100_000_000;
-const ITEM_CAP = 200;
+const STORED_CAP = 200;
+const ITEM_CAP = 10_000;
 
 export function blobStoreEnabled() {
   return (process.env.BLOB_READ_WRITE_TOKEN ?? "").trim().length > 10;
@@ -22,8 +23,15 @@ function idOf(value: unknown) {
 }
 
 async function memberContext(request: Request) {
-  const { requireMember } = await import("@/modules/home/service");
+  const { requireMember } = await import("@/modules/access");
   return requireMember(request);
+}
+
+async function eventOnWedding(weddingId: mongoose.Types.ObjectId, eventId: unknown) {
+  if (typeof eventId !== "string" || !/^[a-f0-9]{24}$/i.test(eventId)) return null;
+  const { EventModel } = await import("@/server/db/schemas");
+  const event = await EventModel.findOne({ _id: eventId, weddingId }, { _id: 1 });
+  return event ? event._id : null;
 }
 
 function mediaType(bytes: Buffer): { kind: "photo" | "video"; contentType: string } | null {
@@ -69,6 +77,7 @@ async function savePhoto(input: {
   weddingId: mongoose.Types.ObjectId;
   bytes: Buffer;
   title: string;
+  eventId?: mongoose.Types.ObjectId | null;
   uploadedBy: { type: "organiser" | "guest"; userId?: mongoose.Types.ObjectId };
 }) {
   const media = mediaType(input.bytes);
@@ -79,9 +88,9 @@ async function savePhoto(input: {
     throw new ServiceError(400, "VALIDATION_ERROR", "FILE_TOO_LARGE", "Files sent through the app stay under 4 MB. Larger photographs and videos upload directly when the file store is connected.");
   }
   const contentType = media.contentType;
-  const count = await GalleryModel.countDocuments({ weddingId: input.weddingId });
-  if (count >= ITEM_CAP) {
-    throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This gallery is full.");
+  const stored = await GalleryModel.countDocuments({ weddingId: input.weddingId, publicPath: { $exists: false } });
+  if (stored >= STORED_CAP) {
+    throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This gallery holds 200 files sent through the app. Connect the file store for more.");
   }
   const itemId = new mongoose.Types.ObjectId();
   const storageKey = `weddings/${idOf(input.weddingId)}/gallery/${idOf(itemId)}`;
@@ -101,6 +110,7 @@ async function savePhoto(input: {
       bytes: input.bytes.length,
       storageKey,
       title: input.title,
+      ...(input.eventId ? { eventId: input.eventId } : {}),
       uploadedBy: input.uploadedBy,
       hidden: false,
       schemaVersion: 1,
@@ -122,7 +132,8 @@ export async function readUpload(request: Request) {
     throw new ServiceError(400, "VALIDATION_ERROR", "FILE_TOO_LARGE", "Files sent through the app stay under 4 MB. Larger photographs and videos upload directly when the file store is connected.");
   }
   const bytes = Buffer.from(await file.arrayBuffer());
-  return { bytes, title: titleFrom(file.name) };
+  const eventId = form.get("eventId");
+  return { bytes, title: titleFrom(file.name), eventId: typeof eventId === "string" ? eventId : null };
 }
 
 export async function uploadOrganiserPhoto(request: Request) {
@@ -134,6 +145,7 @@ export async function uploadOrganiserPhoto(request: Request) {
     weddingId: membership.weddingId,
     bytes: file.bytes,
     title: file.title,
+    eventId: await eventOnWedding(membership.weddingId, file.eventId),
     uploadedBy: { type: "organiser", userId: user._id },
   });
 }
@@ -142,11 +154,82 @@ export async function readOrganiserPhoto(request: Request, itemId: string) {
   const { membership } = await memberContext(request);
   await connectToDatabase();
   if (!/^[a-f0-9]{24}$/i.test(itemId)) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That photograph was not found.");
-  const row = await GalleryModel.findOne({ _id: itemId, weddingId: membership.weddingId, hidden: false });
+  const row = await GalleryModel.findOne({ _id: itemId, weddingId: membership.weddingId });
   if (!row) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That photograph was not found.");
+  const filename = `${(row.title ?? "photograph").replace(/[^\w. -]/g, "_")}.${row.contentType.split("/")[1]?.replace("quicktime", "mov") ?? "bin"}`;
+  const stored = row.publicPath ?? "";
+  if (stored.startsWith("https://") || stored.startsWith("/photos/")) return { kind: "redirect" as const, url: stored, filename };
   const media = await MediaModel.findOne({ storageKey: row.storageKey });
   if (!media) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That photograph was not found.");
-  return { contentType: row.contentType, bytes: bytesOf(media.data) };
+  return { kind: "bytes" as const, contentType: String(row.contentType), bytes: bytesOf(media.data), filename };
+}
+
+export async function updateOrganiserPhoto(request: Request, itemId: string, body: unknown) {
+  const { membership } = await memberContext(request);
+  await connectToDatabase();
+  if (!/^[a-f0-9]{24}$/i.test(itemId)) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That photograph was not found.");
+  const input = (body ?? {}) as { hidden?: unknown; eventId?: unknown };
+  const set: Record<string, unknown> = {};
+  const unset: Record<string, ""> = {};
+  if (typeof input.hidden === "boolean") set.hidden = input.hidden;
+  if (input.eventId === null) unset.eventId = "";
+  else if (input.eventId !== undefined) {
+    const eventId = await eventOnWedding(membership.weddingId, input.eventId);
+    if (!eventId) throw new ServiceError(400, "VALIDATION_ERROR", "UNKNOWN_EVENT", "Choose a function on this wedding.");
+    set.eventId = eventId;
+  }
+  const updated = await GalleryModel.updateOne(
+    { _id: itemId, weddingId: membership.weddingId },
+    { ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) },
+  );
+  if (updated.matchedCount === 0) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That photograph was not found.");
+  return { id: itemId, ...set };
+}
+
+export async function listOrganiserGallery(request: Request) {
+  const { membership } = await memberContext(request);
+  await connectToDatabase();
+  const { EventModel } = await import("@/server/db/schemas");
+  const { publicAppUrl } = await import("@/config/env");
+  const wedding = await WeddingModel.findById(membership.weddingId);
+  if (!wedding) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That wedding was not found.");
+  const [rows, events] = await Promise.all([
+    GalleryModel.find({ weddingId: membership.weddingId }).sort({ createdAt: -1 }).limit(2000),
+    EventModel.find({ weddingId: membership.weddingId }, { title: 1 }).sort({ startsAt: 1 }),
+  ]);
+  return {
+    enabled: wedding.gallery.enabled !== false,
+    guestUploadEnabled: wedding.gallery.guestUploadEnabled !== false,
+    directUpload: blobStoreEnabled(),
+    uploadPrefix: `weddings/${idOf(wedding._id)}/gallery`,
+    url: `${publicAppUrl()}/g/${wedding.gallery.token}`,
+    albums: [
+      ...events.map((event) => ({ eventId: idOf(event._id), title: event.title, total: rows.filter((row) => idOf(row.eventId) === idOf(event._id)).length })),
+      { eventId: null, title: "Other memories", total: rows.filter((row) => !row.eventId).length },
+    ],
+    items: rows.map((row) => ({
+      id: idOf(row._id),
+      title: row.title ?? "Photograph",
+      kind: row.kind,
+      url: mediaUrl(row.publicPath, `/api/gallery/items/${idOf(row._id)}/file`),
+      eventId: row.eventId ? idOf(row.eventId) : null,
+      hidden: row.hidden,
+      uploadedBy: row.uploadedBy?.type ?? "organiser",
+      createdAt: row.createdAt.toISOString(),
+    })),
+  };
+}
+
+export async function setGallery(request: Request, body: unknown) {
+  const { membership } = await memberContext(request);
+  await connectToDatabase();
+  const input = (body ?? {}) as { enabled?: unknown; guestUploadEnabled?: unknown };
+  const set: Record<string, boolean> = {};
+  if (typeof input.enabled === "boolean") set["gallery.enabled"] = input.enabled;
+  if (typeof input.guestUploadEnabled === "boolean") set["gallery.guestUploadEnabled"] = input.guestUploadEnabled;
+  if (Object.keys(set).length === 0) throw new ServiceError(400, "VALIDATION_ERROR", "NOTHING_TO_CHANGE", "Choose a setting.");
+  await WeddingModel.updateOne({ _id: membership.weddingId }, { $set: set });
+  return { ok: true };
 }
 
 export async function deleteOrganiserPhoto(request: Request, itemId: string) {
@@ -187,9 +270,15 @@ async function weddingByGalleryToken(token: string) {
 export async function readPublicGallery(token: string) {
   const wedding = await weddingByGalleryToken(token);
   if (!wedding || wedding.gallery.enabled === false) return null;
-  const rows = await GalleryModel.find({ weddingId: wedding._id, hidden: false }).sort({ createdAt: -1 });
+  const { EventModel } = await import("@/server/db/schemas");
+  const [rows, events] = await Promise.all([
+    GalleryModel.find({ weddingId: wedding._id, hidden: false }).sort({ createdAt: -1 }).limit(2000),
+    EventModel.find({ weddingId: wedding._id }, { title: 1 }).sort({ startsAt: 1 }),
+  ]);
   return {
-    couple: `${wedding.brideName} & ${wedding.groomName}`,
+    couple: wedding.title || `${wedding.brideName} & ${wedding.groomName}`,
+    packId: wedding.site?.theme?.packId ?? "classical",
+    albums: events.map((event) => ({ eventId: idOf(event._id), title: event.title })),
     directUpload: blobStoreEnabled(),
     uploadPrefix: `weddings/${idOf(wedding._id)}/gallery`,
     guestUploadEnabled: wedding.gallery.guestUploadEnabled !== false,
@@ -197,6 +286,7 @@ export async function readPublicGallery(token: string) {
       id: idOf(row._id),
       title: row.title ?? "Photograph",
       kind: row.kind,
+      eventId: row.eventId ? idOf(row.eventId) : null,
       url: mediaUrl(row.publicPath, `/api/public/gallery/${token}/items/${idOf(row._id)}`),
     })),
   };
@@ -217,6 +307,7 @@ export async function uploadGuestPhoto(request: Request, token: string) {
     weddingId: wedding._id,
     bytes: file.bytes,
     title: file.title,
+    eventId: await eventOnWedding(wedding._id, file.eventId),
     uploadedBy: { type: "guest" },
   });
   return { id: saved.id, title: saved.title };
@@ -249,6 +340,7 @@ export async function recordBlob(input: {
   weddingId: mongoose.Types.ObjectId;
   url: string;
   pathname: string;
+  eventId?: unknown;
   uploadedBy: { type: "organiser" | "guest"; userId?: mongoose.Types.ObjectId };
 }) {
   await connectToDatabase();
@@ -280,6 +372,7 @@ export async function recordBlob(input: {
       storageKey: input.pathname,
       publicPath: input.url,
       title,
+      ...((await eventOnWedding(input.weddingId, input.eventId)) ? { eventId: await eventOnWedding(input.weddingId, input.eventId) } : {}),
       uploadedBy: input.uploadedBy,
       hidden: false,
       schemaVersion: 1,
@@ -292,4 +385,13 @@ export async function recordBlob(input: {
     }
     throw error;
   }
+}
+
+export async function galleryLink(request: Request) {
+  const { membership } = await memberContext(request);
+  await connectToDatabase();
+  const { publicAppUrl } = await import("@/config/env");
+  const wedding = await WeddingModel.findById(membership.weddingId);
+  if (!wedding) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That wedding was not found.");
+  return { url: `${publicAppUrl()}/g/${wedding.gallery.token}`, couple: wedding.title || `${wedding.brideName} & ${wedding.groomName}` };
 }

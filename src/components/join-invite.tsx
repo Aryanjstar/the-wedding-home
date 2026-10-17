@@ -4,94 +4,69 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { Mark } from "@/components/mark";
-import { usePreview } from "@/components/preview-session";
+import { api, errorText } from "@/components/api";
+import { AuthLayout, Heading } from "@/components/account-screen";
+import { useSession, type Me } from "@/components/session";
+import { Button, ButtonLink } from "@/components/ui/kit";
 
-type Invite = {
-  wedding: { brideName: string; groomName: string };
-  role: "admin" | "manager";
-  email: string;
-};
+type Invite = { wedding: { brideName: string; groomName: string }; role: "admin" | "manager"; email: string };
 
 export function JoinInvite({ token }: { token: string }) {
   const router = useRouter();
-  const preview = usePreview();
+  const session = useSession();
   const [invite, setInvite] = useState<Invite | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  const [busy, setBusy] = useState(false);
   const next = `/join/${token}`;
 
   useEffect(() => {
     let active = true;
-    fetch(`/api/public/member-invite/${encodeURIComponent(token)}`, { cache: "no-store" })
-      .then(async (response) => {
-        if (!active) return;
-        if (!response.ok) {
-          const body = await response.json().catch(() => null) as { detail?: string } | null;
-          setProblem(body?.detail || "That invitation was not found.");
-          return;
-        }
-        setInvite(await response.json() as Invite);
-      })
-      .catch(() => {
-        if (active) setProblem("That invitation could not be opened.");
-      });
+    api<Invite>(`/api/public/member-invite/${encodeURIComponent(token)}`)
+      .then((value) => active && setInvite(value))
+      .catch((error) => active && setProblem(errorText(error)));
     return () => {
       active = false;
     };
   }, [token]);
 
   async function accept() {
-    setPending(true);
+    setBusy(true);
     setProblem(null);
-    const response = await fetch("/api/members/join", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => null) as { detail?: string } | null;
-      setProblem(body?.detail || "Could not accept the invitation.");
-      setPending(false);
-      return;
+    try {
+      session.setMe(await api<Me>("/api/members/join", { method: "POST", body: { token } }));
+      router.push("/app");
+    } catch (error) {
+      setProblem(errorText(error));
+      setBusy(false);
     }
-    router.push("/app");
-    router.refresh();
   }
 
-  const sameEmail = preview.person?.email === invite?.email;
+  const me = session.me;
+  const sameEmail = me?.user.email === invite?.email;
   const role = invite?.role === "admin" ? "an Admin" : "a Manager";
 
   return (
-    <main className="account">
-      <div className="glass account-card">
-        <Mark />
-        <h1 className="serif">Join the wedding</h1>
-        {!invite && !problem ? <p className="muted">Opening the invitation…</p> : null}
-        {problem ? <p className="form-error" role="alert">{problem}</p> : null}
-        {invite ? (
-          <>
-            <p>{invite.wedding.brideName} & {invite.wedding.groomName} invited {invite.email} to organise as {role}.</p>
-            {preview.ready && preview.person && preview.wedding ? (
-              <Link className="btn" href="/app">Open the wedding</Link>
-            ) : null}
-            {preview.ready && sameEmail && !preview.wedding ? (
-              <button className="btn" type="button" disabled={pending} onClick={() => void accept()}>
-                {pending ? "Joining…" : "Accept"}
-              </button>
-            ) : null}
-            {preview.ready && !preview.person ? (
-              <div className="actions">
-                <Link className="btn" href={`/create-account?next=${encodeURIComponent(next)}&email=${encodeURIComponent(invite.email)}`}>Create account</Link>
-                <Link className="btn-text" href={`/sign-in?next=${encodeURIComponent(next)}&email=${encodeURIComponent(invite.email)}`}>Sign in</Link>
-              </div>
-            ) : null}
-            {preview.ready && preview.person && !sameEmail ? (
-              <p className="fine">This invitation is for {invite.email}. Sign in with that address.</p>
-            ) : null}
-          </>
-        ) : null}
-      </div>
-    </main>
+    <AuthLayout>
+      <Heading title="Join the wedding" lede={invite ? <>{invite.wedding.brideName} &amp; {invite.wedding.groomName} invited <strong>{invite.email}</strong> to organise as {role}.</> : undefined} />
+      {!invite && !problem ? <p className="ui-hint">Opening the invitation…</p> : null}
+      {problem ? <p className="auth-alert" role="alert">{problem}</p> : null}
+      {invite && session.ready ? (
+        me?.wedding && sameEmail ? (
+          <ButtonLink href="/app" size="lg">Open the wedding</ButtonLink>
+        ) : me?.wedding ? (
+          <p className="auth-alert">You are signed in as {me.user.email}, who already organises a wedding. One account plans one wedding. Sign out and sign in as {invite.email}.</p>
+        ) : me && sameEmail ? (
+          <Button size="lg" busy={busy} onClick={() => void accept()}>Accept and open the wedding</Button>
+        ) : me ? (
+          <p className="auth-alert">This invitation is for {invite.email}. You are signed in as {me.user.email}. Sign out, then sign in with that address.</p>
+        ) : (
+          <div className="ui-form ui-form-1">
+            <ButtonLink href={`/create-account?next=${encodeURIComponent(next)}&email=${encodeURIComponent(invite.email)}`} size="lg">Create an account</ButtonLink>
+            <ButtonLink href={`/sign-in?next=${encodeURIComponent(next)}&email=${encodeURIComponent(invite.email)}`} size="lg" tone="secondary">I already have an account</ButtonLink>
+          </div>
+        )
+      ) : null}
+      <div className="auth-links"><Link href="/">The Wedding Home</Link></div>
+    </AuthLayout>
   );
 }

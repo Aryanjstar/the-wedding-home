@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { Photos } from "@/components/workspace/views";
+import { PhotosPage } from "@/components/workspace/photos";
 
-export const metadata: Metadata = { title: "Photos · The Wedding Home" };
+export const metadata: Metadata = { title: "Photos & videos · The Wedding Home" };
 
-export default function PhotosPage() {
-  return <Photos />;
+export default function Page() {
+  return <PhotosPage />;
 }

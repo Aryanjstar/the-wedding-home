@@ -4,255 +4,226 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
-import { Mark } from "@/components/mark";
-import { usePreview } from "@/components/preview-session";
+import { useSession } from "@/components/session";
+import { Icon } from "@/components/ui/icon";
+import { Button, Field, PasswordInput, TextInput } from "@/components/ui/kit";
 
-type Kind = "sign-in" | "create" | "wedding" | "reset";
-type Step = "account" | "wedding" | "functions" | "dashboard";
-
-const steps: { id: Step; label: string }[] = [
-  { id: "account", label: "Account" },
-  { id: "wedding", label: "Wedding" },
-  { id: "functions", label: "Functions" },
-  { id: "dashboard", label: "Dashboard" },
-];
-
-export function FlowSteps({ current }: { current: Step }) {
-  const index = steps.findIndex((step) => step.id === current);
+function Mandap() {
   return (
-    <ol className="flow-steps" aria-label="Setup">
-      {steps.map((step, i) => (
-        <li key={step.id} aria-current={step.id === current ? "step" : undefined} data-state={i < index ? "done" : i === index ? "current" : "later"}>
-          <span>{i + 1}</span>
-          {step.label}
-        </li>
+    <svg className="auth-mandap" viewBox="0 0 400 300" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden="true">
+      <path d="M40 290V120M360 290V120M40 120Q200 10 360 120M70 120V290M330 120V290" />
+      <path d="M40 120h320M60 104q140-80 280 0" />
+      {Array.from({ length: 13 }, (_, index) => (
+        <path key={index} d={`M${60 + index * 23} 120v${14 + (index % 2) * 8}`} />
       ))}
-    </ol>
+      {Array.from({ length: 13 }, (_, index) => (
+        <circle key={`m${index}`} cx={60 + index * 23} cy={138 + (index % 2) * 8} r="4" />
+      ))}
+      <path d="M150 290v-50h100v50M170 240v-22h60v22M200 218v-16" />
+      <path d="M192 196q8-14 16 0q-8 8-16 0z" />
+      <path d="M0 290h400" />
+    </svg>
   );
 }
 
-export function AccountScreen({
-  kind,
-  title,
-  lede,
-  action,
-  links,
-  extra,
-  token,
-  returnTo,
-  defaultEmail,
-}: {
-  kind: Kind;
-  title: string;
-  lede?: string;
-  action: string;
-  links: ReactNode;
-  extra?: ReactNode;
-  token?: string;
-  returnTo?: string;
-  defaultEmail?: string;
-}) {
+export function AuthLayout({ children }: { children: ReactNode }) {
+  return (
+    <div className="auth">
+      <aside className="auth-art">
+        <Link href="/" className="ws-mark" aria-label="The Wedding Home">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M6 10v9h12v-9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="14" r="1.6" fill="currentColor" /></svg>
+          <span>The Wedding Home</span>
+        </Link>
+        <div className="auth-art-copy">
+          <p lang="hi">॥ शुभ विवाह ॥</p>
+          <h2>The whole week, in one home.</h2>
+          <p>Functions with their maps, households and RSVPs with veg, non-veg and Jain, tasks, a rupee spend log, a themed site, and one gallery for every phone.</p>
+        </div>
+        <div className="auth-art-foot">
+          <span><Icon name="shield" size={15} /> Guests never need an account</span>
+          <span><Icon name="whatsapp" size={15} /> Invites on WhatsApp</span>
+        </div>
+        <Mandap />
+      </aside>
+      <main className="auth-panel">
+        <div className="auth-card">
+          <div className="auth-mobile-brand">
+            <Link href="/" className="ws-mark">
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M6 10v9h12v-9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /><circle cx="12" cy="14" r="1.6" fill="currentColor" /></svg>
+              <span>The Wedding Home</span>
+            </Link>
+          </div>
+          {children}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export function Heading({ title, lede }: { title: string; lede?: ReactNode }) {
+  return (
+    <header>
+      <h1>{title}</h1>
+      {lede ? <p className="ws-lede">{lede}</p> : null}
+    </header>
+  );
+}
+
+export function SignInForm({ returnTo, defaultEmail }: { returnTo?: string; defaultEmail?: string }) {
   const router = useRouter();
-  const preview = usePreview();
+  const session = useSession();
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [resetDone, setResetDone] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!preview.ready) return;
-    if (preview.person && (kind === "sign-in" || kind === "create")) {
-      router.replace(returnTo || (preview.wedding ? "/app" : "/wedding/new"));
-    }
-    if (!preview.person && kind === "wedding") router.replace("/plan");
-  }, [preview.ready, preview.person, preview.wedding, kind, router, returnTo]);
+    if (session.ready && session.me && !busy) router.replace(returnTo || (session.me.wedding ? "/app" : "/plan"));
+  }, [session.ready, session.me, busy, returnTo, router]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending) return;
     const data = new FormData(event.currentTarget);
+    setBusy(true);
     setError(null);
-    setPending(true);
-    try {
-      if (kind === "sign-in") {
-        const result = await preview.signIn(String(data.get("email") || ""), String(data.get("password") || ""));
-        if (result.error) setError(result.error);
-        else router.push(returnTo || result.next);
-        return;
-      }
-      if (kind === "create") {
-        const result = await preview.createAccount(
-          String(data.get("name") || ""),
-          String(data.get("email") || ""),
-          String(data.get("password") || ""),
-          String(data.get("confirm") || ""),
-        );
-        if (result.error) setError(result.error);
-        else router.push(returnTo || result.next || "/wedding/new");
-        return;
-      }
-      if (kind === "wedding") {
-        const next = await preview.saveWedding({
-          bride: String(data.get("bride") || ""),
-          groom: String(data.get("groom") || ""),
-          date: String(data.get("date") || ""),
-          city: String(data.get("city") || ""),
-          title: String(data.get("title") || ""),
-          story: String(data.get("story") || ""),
-        });
-        if (!next) setError("Enter the bride, the groom, the date, and the city.");
-        else router.push(next);
-        return;
-      }
-      const failure = await preview.requestReset(String(data.get("email") || ""));
-      if (failure) setError(failure);
-      else setSent(true);
-    } finally {
-      setPending(false);
+    const result = await session.signIn(String(data.get("email") ?? ""), String(data.get("password") ?? ""));
+    if (result.error) {
+      setError(result.error);
+      setBusy(false);
+      return;
     }
+    router.push(returnTo || result.next);
   }
-
-  async function saveReset(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (pending) return;
-    const data = new FormData(event.currentTarget);
-    setError(null);
-    setPending(true);
-    try {
-      const failure = await preview.resetPassword(token ?? "", String(data.get("password") || ""), String(data.get("confirm") || ""));
-      if (failure) setError(failure);
-      else setResetDone(true);
-    } finally {
-      setPending(false);
-    }
-  }
-
-  if (!preview.ready) {
-    return (
-      <main className="account">
-        <p className="muted">Opening…</p>
-      </main>
-    );
-  }
-
-  if (kind === "reset" && token) {
-    return (
-      <main className="account">
-        <div className="glass account-card">
-          <Mark />
-          <h1 className="serif">Choose a new password</h1>
-          <p>Use 10 to 128 characters. Not a common password. This link works once.</p>
-          {resetDone ? (
-            <p>The new password is saved. Sign in with it.</p>
-          ) : (
-            <form className="fields" onSubmit={saveReset}>
-              <Field label="New password" name="password" type="password" autoComplete="new-password" hint="10 to 128 characters." />
-              <Field label="Confirm password" name="confirm" type="password" autoComplete="new-password" />
-              {error ? <p className="form-error" role="alert">{error}</p> : null}
-              <button className="btn" type="submit" disabled={pending}>{pending ? "Saving…" : "Save password"}</button>
-            </form>
-          )}
-          <div className="account-links">
-            <TextLink href="/sign-in">Back to sign in</TextLink>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (kind === "reset" && sent) {
-    return (
-      <main className="account">
-        <div className="glass account-card">
-          <Mark />
-          <h1 className="serif">Check that email</h1>
-          <p>If that address has an account, we have sent a reset link.</p>
-          <p className="fine">The note stays the same even when the address is new. The link works for one hour.</p>
-          <div className="account-links">
-            <TextLink href="/sign-in">Back to sign in</TextLink>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  const wedding = preview.wedding;
-  const formKey = kind === "wedding" ? `${wedding?.bride ?? ""}|${wedding?.groom ?? ""}|${wedding?.date ?? ""}|${wedding?.city ?? ""}|${wedding?.title ?? ""}|${wedding?.story ?? ""}` : kind;
 
   return (
-    <main className="account">
-      <form key={formKey} className="glass account-card" onSubmit={submit}>
-        <Mark />
-        {kind === "create" ? <FlowSteps current="account" /> : null}
-        {kind === "wedding" ? <FlowSteps current="wedding" /> : null}
-        <h1 className="serif">{title}</h1>
-        {lede ? <p className="muted">{lede}</p> : null}
-        <div className="fields">
-          {kind === "sign-in" ? (
-            <>
-              <Field label="Email" name="email" type="email" autoComplete="email" defaultValue={defaultEmail} />
-              <Field label="Password" name="password" type="password" autoComplete="current-password" />
-            </>
-          ) : null}
-          {kind === "create" ? (
-            <>
-              <Field label="Name" name="name" autoComplete="name" />
-              <Field label="Email" name="email" type="email" autoComplete="email" defaultValue={defaultEmail} />
-              <Field label="Password" name="password" type="password" autoComplete="new-password" hint="10 to 128 characters. Not a common password." />
-              <Field label="Confirm password" name="confirm" type="password" autoComplete="new-password" />
-            </>
-          ) : null}
-          {kind === "wedding" ? (
-            <>
-              <Field label="Bride" name="bride" defaultValue={wedding?.bride ?? ""} autoComplete="off" />
-              <Field label="Groom" name="groom" defaultValue={wedding?.groom ?? ""} autoComplete="off" />
-              <Field label="Wedding date" name="date" type="date" defaultValue={wedding?.date ?? ""} />
-              <Field label="City" name="city" defaultValue={wedding?.city ?? ""} autoComplete="address-level2" />
-              <Field label="Title" name="title" defaultValue={wedding?.title ?? ""} autoComplete="off" required={false} hint="Optional. Shown instead of the two names." />
-              <label>
-                Story
-                <textarea name="story" rows={3} defaultValue={wedding?.story ?? ""} />
-                <span className="fine">Optional. A few lines about the wedding.</span>
-              </label>
-            </>
-          ) : null}
-          {kind === "reset" ? <Field label="Email" name="email" type="email" autoComplete="email" /> : null}
-        </div>
-        {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <button className="btn" type="submit" disabled={pending}>
-          {pending ? (kind === "sign-in" ? "Continuing…" : "Saving…") : kind === "wedding" && wedding ? "Save" : action}
-        </button>
-        <div className="account-links">{links}</div>
-        {kind === "create" ? <p className="fine">One person starts the wedding. They can invite the rest of the family after the functions are in.</p> : null}
-        {extra}
+    <AuthLayout>
+      <Heading title="Welcome back" lede="Sign in to the wedding you are organising." />
+      <form className="ui-form ui-form-1" onSubmit={(event) => void submit(event)}>
+        <Field label="Email"><TextInput name="email" type="email" autoComplete="email" defaultValue={defaultEmail} required autoFocus={!defaultEmail} /></Field>
+        <Field label="Password"><PasswordInput name="password" autoComplete="current-password" required autoFocus={Boolean(defaultEmail)} /></Field>
+        {error ? <p className="auth-alert" role="alert">{error}</p> : null}
+        <Button type="submit" size="lg" busy={busy}>Sign in</Button>
       </form>
-    </main>
+      <div className="auth-links">
+        <Link href="/reset-password">Forgot password?</Link>
+        <Link href={returnTo ? `/create-account?next=${encodeURIComponent(returnTo)}${defaultEmail ? `&email=${encodeURIComponent(defaultEmail)}` : ""}` : "/plan"}>{returnTo ? "Create an account" : "Plan a new wedding"}</Link>
+      </div>
+    </AuthLayout>
   );
 }
 
-export function Field({
-  label,
-  type = "text",
-  defaultValue,
-  name,
-  autoComplete,
-  hint,
-  required = true,
-}: {
-  label: string;
-  type?: string;
-  defaultValue?: string;
-  name: string;
-  autoComplete?: string;
-  hint?: string;
-  required?: boolean;
-}) {
+export function CreateAccountForm({ returnTo, defaultEmail }: { returnTo?: string; defaultEmail?: string }) {
+  const router = useRouter();
+  const session = useSession();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (session.ready && session.me && !busy) router.replace(returnTo || (session.me.wedding ? "/app" : "/plan"));
+  }, [session.ready, session.me, busy, returnTo, router]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    setError(null);
+    const result = await session.createAccount(String(data.get("name") ?? ""), String(data.get("email") ?? ""), String(data.get("password") ?? ""), String(data.get("confirm") ?? ""));
+    if (result.error) {
+      setError(result.error);
+      setBusy(false);
+      return;
+    }
+    router.push(returnTo || result.next);
+  }
+
   return (
-    <label>
-      {label}
-      <input name={name} type={type} defaultValue={defaultValue} required={required} autoComplete={autoComplete} />
-      {hint ? <span className="fine">{hint}</span> : null}
-    </label>
+    <AuthLayout>
+      <Heading title={returnTo ? "Join the family" : "Create your account"} lede={returnTo ? "Use the same email the invitation was sent to." : "Your name, your email, and a password."} />
+      <form className="ui-form ui-form-1" onSubmit={(event) => void submit(event)}>
+        <Field label="Your name"><TextInput name="name" autoComplete="name" required maxLength={100} /></Field>
+        <Field label="Email"><TextInput name="email" type="email" autoComplete="email" defaultValue={defaultEmail} required /></Field>
+        <Field label="Password" hint="10 to 128 characters. Not a common password."><PasswordInput name="password" autoComplete="new-password" required /></Field>
+        <Field label="Confirm password"><PasswordInput name="confirm" autoComplete="new-password" required /></Field>
+        {error ? <p className="auth-alert" role="alert">{error}</p> : null}
+        <Button type="submit" size="lg" busy={busy}>Create account</Button>
+      </form>
+      <div className="auth-links">
+        <Link href={returnTo ? `/sign-in?next=${encodeURIComponent(returnTo)}${defaultEmail ? `&email=${encodeURIComponent(defaultEmail)}` : ""}` : "/sign-in"}>I already have an account</Link>
+      </div>
+    </AuthLayout>
+  );
+}
+
+export function ResetRequestForm() {
+  const session = useSession();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const email = String(new FormData(event.currentTarget).get("email") ?? "");
+    setBusy(true);
+    setError(null);
+    const failure = await session.requestReset(email);
+    setBusy(false);
+    if (failure) setError(failure);
+    else setSent(true);
+  }
+
+  return (
+    <AuthLayout>
+      <Heading title="Reset your password" lede="Enter the email on the account. If it has one, a reset link is on its way." />
+      {sent ? (
+        <div className="auth-ok" role="status">
+          <strong>Check that inbox.</strong>
+          <p style={{ margin: "0.3rem 0 0" }}>If that address has an account, we have sent a link. It works once, for one hour.</p>
+        </div>
+      ) : (
+        <form className="ui-form ui-form-1" onSubmit={(event) => void submit(event)}>
+          <Field label="Email"><TextInput name="email" type="email" autoComplete="email" required autoFocus /></Field>
+          {error ? <p className="auth-alert" role="alert">{error}</p> : null}
+          <Button type="submit" size="lg" busy={busy}>Send the reset link</Button>
+        </form>
+      )}
+      <div className="auth-links"><Link href="/sign-in">Back to sign in</Link></div>
+    </AuthLayout>
+  );
+}
+
+export function ResetPasswordForm({ token }: { token: string }) {
+  const session = useSession();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    setError(null);
+    const failure = await session.resetPassword(token, String(data.get("password") ?? ""), String(data.get("confirm") ?? ""));
+    setBusy(false);
+    if (failure) setError(failure);
+    else setDone(true);
+  }
+
+  return (
+    <AuthLayout>
+      <Heading title="Choose a new password" lede="10 to 128 characters, and not a common one. This link works once." />
+      {done ? (
+        <div className="auth-ok" role="status">
+          <strong>Saved.</strong>
+          <p style={{ margin: "0.3rem 0 0" }}>Every device was signed out. Sign in with the new password.</p>
+        </div>
+      ) : (
+        <form className="ui-form ui-form-1" onSubmit={(event) => void submit(event)}>
+          <Field label="New password"><PasswordInput name="password" autoComplete="new-password" required autoFocus /></Field>
+          <Field label="Confirm password"><PasswordInput name="confirm" autoComplete="new-password" required /></Field>
+          {error ? <p className="auth-alert" role="alert">{error}</p> : null}
+          <Button type="submit" size="lg" busy={busy}>Save password</Button>
+        </form>
+      )}
+      <div className="auth-links"><Link href="/sign-in">Sign in</Link></div>
+    </AuthLayout>
   );
 }
 

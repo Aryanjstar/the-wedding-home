@@ -1,22 +1,6 @@
-import { createRequestId } from "@/server/http/request-id";
-import { assertSameOrigin, json, readJson, toProblem } from "@/server/http/handle";
-import { createVendor, listVendors } from "@/modules/home/service";
+import { createVendor, listVendors } from "@/modules/vendors/service";
+import { route } from "@/server/http/route";
 
-export async function GET(request: Request) {
-  const requestId = createRequestId();
-  try {
-    return json(await listVendors(request), 200, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const GET = route((request) => listVendors(request));
 
-export async function POST(request: Request) {
-  const requestId = createRequestId();
-  try {
-    assertSameOrigin(request);
-    return json(await createVendor(request, await readJson(request)), 201, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const POST = route((request, _p, body) => createVendor(request, body), { status: 201 });

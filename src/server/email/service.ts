@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getEmailEnv, publicAppUrl } from "@/config/env";
-import { householdInvitationText, memberInvitationText, passwordResetText } from "@/server/email/messages";
+import { householdInvitationText, memberInvitationText, passwordResetText, reminderText } from "@/server/email/messages";
 
 export class EmailDeliveryError extends Error {
   constructor() {
@@ -105,6 +105,25 @@ export async function sendHouseholdInvitation(input: {
       city: input.city,
       url: absoluteUrl(input.invitePath),
     }),
+    idempotencyKey: input.idempotencyKey,
+  });
+}
+
+export async function sendReminder(input: {
+  to: string;
+  kind: "please_rsvp" | "see_you_soon";
+  householdName: string;
+  couple: string;
+  eventTitle: string;
+  when: string;
+  venue: string | null;
+  invitePath: string;
+  idempotencyKey: string;
+}) {
+  await sendEmail({
+    to: input.to,
+    subject: input.kind === "see_you_soon" ? `See you at the ${input.eventTitle}` : `${input.couple}: please RSVP for the ${input.eventTitle}`,
+    text: reminderText({ ...input, url: absoluteUrl(input.invitePath) }),
     idempotencyKey: input.idempotencyKey,
   });
 }

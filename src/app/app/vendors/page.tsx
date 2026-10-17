@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { Vendors } from "@/components/workspace/views";
+import { VendorsPage } from "@/components/workspace/vendors";
 
 export const metadata: Metadata = { title: "Vendors · The Wedding Home" };
 
-export default function VendorsPage() {
-  return <Vendors />;
+export default function Page() {
+  return <VendorsPage />;
 }
