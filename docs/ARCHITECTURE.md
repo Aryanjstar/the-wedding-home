@@ -1,9 +1,9 @@
 # The Wedding Home — system architecture
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.4  
-**Status:** Locked for v1 scaffolding  
-**Date:** 4 Oct 2026 (v1.4 matches the API and database gap pass; v1.3 was 30 Sep 2026)  
+**Version:** 1.5  
+**Status:** Locked for v1  
+**Date:** 18 Oct 2026 (v1.5 records the file store and the map provider; v1.4 was 4 Oct 2026)  
 **Audience:** Anyone implementing a slice
 
 This document is the system design. It does not add pages, roles, or features. Requirements stay in [PRD.md](./PRD.md). Vision stays in [PRODUCT.md](./PRODUCT.md).
@@ -30,7 +30,7 @@ Define how The Wedding Home runs:
 - How a wedding isolates its data
 - Where files, email, maps, and the public site sit
 - How reminders and bulk email run without a second server
-- What happens when Mongo, S3, Resend, Places, or YouTube fails
+- What happens when Mongo, the file store, Resend, OpenStreetMap, or YouTube fails
 
 ---
 
@@ -55,7 +55,7 @@ That scale is the ceiling this design must survive. It is not a reason to add qu
 
 **Guests never become users.** Invitation and gallery access are unguessable links.
 
-**Managed services.** Vercel, Atlas, S3, Resend, Google Places, YouTube. We do not run servers, clusters, or a stream.
+**Managed services.** Vercel (hosting, Blob, Cron), Atlas, Resend, OpenStreetMap's public Nominatim and Photon, Google Maps links and its keyless embed, YouTube. We do not run servers, clusters, or a stream.
 
 **Third-party SDKs stay behind one adapter each.** Domain code calls `EmailService`, `StorageService`, and `VendorDiscoveryService`.
 
@@ -77,10 +77,10 @@ That scale is the ceiling this design must survive. It is not a reason to add qu
 | Auth | Custom email and password. No Clerk, Auth0, or similar |
 | Session | Random id in an httpOnly cookie. Server stores the hash |
 | Passwords | bcrypt, cost 12, via a pure-JS library. No hand-rolled crypto. Argon2id is deferred (DATABASE §5.1) |
-| Files | Private Amazon S3 bucket in `ap-south-1` |
+| Files | Vercel Blob for photos up to 15 MB and videos up to 100 MB, uploaded straight from the browser. Without Blob, files under 4 MB go through the app into MongoDB (`media_objects`). S3 in Mumbai is the planned move when a gallery outgrows this (§12) |
 | Email | Resend, behind `EmailService` |
 | Bulk email | MongoDB job rows, small batches, Vercel Cron |
-| Maps | Venue pin and place search in the browser with a referrer-restricted Maps key. Open in Google Maps is a plain link. Places API from the server, with a separate key, for vendor search |
+| Maps | The venue map is Google Maps' keyless embed of the venue's name and address; Open in Google Maps is a plain link. Coordinates and nearby vendor search come from OpenStreetMap on the server: Nominatim (geocoding, categories, lookup) and Photon (name search). No map key |
 | Live | YouTube or Vimeo URL embedded on our site |
 | WhatsApp | `wa.me` with a prefilled message. Not the Business API |
 | Host | Vercel |
@@ -88,7 +88,9 @@ That scale is the ceiling this design must survive. It is not a reason to add qu
 | Realtime | None in v1 |
 | Product analytics | None in v1 |
 
-S3 stays instead of Cloudflare R2 so gallery objects sit in Mumbai with Atlas and with the families. `StorageService` is the only S3 caller, so a later move to an S3-compatible store does not rewrite domain modules. The weak part of the earlier media design was the upload protocol, not the region. Section 12 replaces that protocol.
+**Why Vercel Blob, not S3, for now (decided 17 Oct 2026, recorded 18 Oct 2026).** Blob is part of the Vercel project, needs no second cloud account or payment method, and lets the browser upload straight to the store with a short-lived token issued by our route, so bytes skip the function. Objects are public by URL but the URL carries a random suffix and is only ever handed to people holding the gallery link. The trade is region (Blob is not pinned to Mumbai) and signed reads. `src/modules/gallery` is the only caller, so the planned move to S3 in `ap-south-1` with the staging protocol of §12 does not touch other modules.
+
+**Why OpenStreetMap, not Google Places (decided 18 Oct 2026).** Places needs a billed key; the key we had was rejected, and vendor search was dead. Nominatim and Photon are free, need no key, and return real Indian shops, caterers, florists, salons, and marriage gardens, though thinner than Google. `src/server/maps/osm.ts` is the only caller; swapping back to Places later changes that file alone. Results carry the attribution “Map data © OpenStreetMap contributors”, as the ODbL requires.
 
 ---
 
@@ -111,11 +113,11 @@ session cookie                            secret link, no account
                                │
          ┌─────────────────────┼──────────────────────┐
          ▼                     ▼                      ▼
-  MongoDB Atlas          S3 (private)             Resend
-  Mumbai                 Mumbai                   email
+  MongoDB Atlas          Vercel Blob              Resend
+  Mumbai                 gallery files            email
 
-  Google Places  ← server only, vendor search (server key)
-  Google Maps    ← venue pin in the page (browser key, referrer-restricted); Open in Google Maps is a normal link
+  OpenStreetMap  ← server only: Nominatim (venue coordinates, categories, lookup) and Photon (names), no key
+  Google Maps    ← keyless embed of the venue in the page; Open in Google Maps is a normal link
   WhatsApp       ← guest's or organiser's phone, via wa.me
   YouTube        ← player embedded on our page
 ```
@@ -160,7 +162,7 @@ households        invitation, RSVP, WhatsApp link
 reminders
 tasks
 expenses
-vendors           saved records; Places stays inside this module
+vendors           saved records; map search goes through src/server/maps
 website           tokens, slug, publish, Live URL
 gallery
 ```
@@ -286,7 +288,9 @@ Share on WhatsApp builds `wa.me` on the server (or as a link the organiser's pho
 
 ---
 
-## 12. Gallery and S3
+## 12. Gallery and file storage
+
+**v1.5, as built.** Mongo holds metadata. Vercel Blob holds the bytes when `BLOB_READ_WRITE_TOKEN` is set: the browser asks `/api/gallery/upload` (or the guest route) for a client token scoped to `weddings/{weddingId}/gallery/`, uploads straight to Blob, and then registers the file. Blob's completion webhook may register it first; both paths carry the album and either one creates the row once, keyed on the storage path. The server reads the first bytes of the stored object and its length before the row exists, so a renamed file is refused. Without Blob, files under 4 MB are posted to the app and kept in `media_objects`. Download for organisers is `/api/gallery/items/{id}/file?download=1`. The rest of this section is the S3 design we move to when a wedding's gallery outgrows Blob.
 
 Mongo holds metadata. S3 holds bytes. The gallery token is one per wedding, stable, and stored so Photos can show the link and the QR again. Same logging rules as the household token. The QR image is generated when an organiser asks for it. It is not stored. The QR text is `https://{host}/g/{token}`.
 
@@ -344,13 +348,13 @@ Live is a URL on the wedding. We allow YouTube and Vimeo hosts, store the URL, a
 
 ## 14. Events, tasks, expenses, vendors
 
-Events belong to the wedding. Each event with a venue stores structured place data: formatted address, city, latitude, longitude, Google place id. The page shows that pin with the Maps Embed or JavaScript API, and the organiser picks the venue with place autocomplete. Both run in the browser, so they use a separate Maps key restricted to our production and preview origins and to those two APIs. That key is public by design and is not the Places key below. Open in Google Maps is a normal link to those coordinates and needs no key. No venue means no map. Haldi and reception are different pins. This map is not vendor search.
+Events belong to the wedding. Each event with a venue stores the venue name, address, and city the organiser typed, and, when OpenStreetMap's Nominatim can place it, latitude and longitude (looked up once on save, again only when the venue changes). The page shows the venue with Google Maps' keyless embed of the name and address, and Open in Google Maps is a normal link; neither needs a key. A city alone is not a venue, so it gets no map. Haldi and reception are different pins. This map is not vendor search.
 
 Tasks, expenses, saved vendors, and gallery items may point at an event. The service checks the event is in the same wedding.
 
 Expenses are an INR spend log: integer rupees, optional category breakdown, no budget. A vendor and an expense can each exist without the other.
 
-Vendor discovery calls Places from `VendorDiscoveryService`, using the selected function's coordinates. The browser never sees the server Places key. Add to My vendors copies name, address, and contact into our vendor row. After that, the saved vendor does not depend on Google still returning the place.
+Vendor discovery runs on the server in `src/server/maps/osm.ts`, centred on the selected function's coordinates (or the wedding city): several Photon name searches and Nominatim category searches inside a box around that point, roads and places removed, duplicates merged, nearest first, widened once when there are fewer than four. Nominatim is called at most once a second per server instance with an identifying User-Agent. Add to My vendors sends only the OSM id; the server reads the place back through Nominatim's lookup and copies name, address, phone, and website into our vendor row. After that, the saved vendor does not depend on the map.
 
 ---
 
@@ -479,7 +483,7 @@ Large lists are paginated. Gallery uses a cursor. Households, tasks, expenses, a
 | Guest links | 256-bit random. Stable and retrievable by organisers. Never logged |
 | Uploads | Short-lived PUT to one staging key. Signature and size checked before publish |
 | Rate limits | Mongo counters. Keys are HMAC'd so the counter collection does not store raw tokens |
-| Secrets | Server env only. Server Places key, S3 keys, Resend, Mongo URI, session secret, and cron secret never ship to the browser |
+| Secrets | Server env only. Blob token, Resend, Mongo URI, session secret, and cron secret never ship to the browser |
 | Public vs private | Public site shows only published fields. Invite shows one household. Gallery shows non-hidden items |
 
 Rate-limit order on RSVP and upload permission:
@@ -494,7 +498,7 @@ Login, signup, and forgot-password are per IP. Limits are configurable. Starting
 
 ## 19. Performance and freshness
 
-v1 uses indexes, pagination, connection reuse, direct-to-S3 uploads, and small email batches. No Redis. Next.js may cache public theme assets when the slug is published. It does not cache `/i` or `/g`.
+v1 uses indexes, connection reuse, direct-to-store uploads, and small email batches. No Redis. Next.js may cache public theme assets when the slug is published. It does not cache `/i` or `/g`.
 
 There are no WebSockets and no live cursors. Another organiser sees a change on navigation or refresh. The PRD already excludes collaborative presence.
 
@@ -503,33 +507,31 @@ There are no WebSockets and no live cursors. Another organiser sees a change on 
 ## 20. Deployment
 
 ```text
-Internet → Vercel (Next.js) → Atlas, S3, Resend
-                            → Places, from the server
+Internet → Vercel (Next.js, Blob, Cron) → Atlas, Resend
+                                        → OpenStreetMap Nominatim and Photon, from the server
 ```
 
 No Kubernetes, ECS, Docker-as-production, or a separate Node process.
 
-| Env | App | Database | Bucket |
+| Env | App | Database | Files |
 |---|---|---|---|
-| Local | `next dev` | `wedding-home-dev` | dev bucket |
-| Preview | Vercel preview | `wedding-home-dev` | dev bucket, its own key |
-| Production | Vercel production | `wedding-home` | prod bucket |
+| Local | `next dev` | `wedding-home-dev` | MongoDB, under 4 MB (no Blob token locally) |
+| Preview | Vercel preview | `wedding-home-dev` | Blob when the token is set for Preview |
+| Production | Vercel production | `wedding-home` | Vercel Blob |
 
 ```text
 MONGODB_URI
 SESSION_SECRET
 CRON_SECRET
-S3_BUCKET
-S3_REGION=ap-south-1
-AWS_ACCESS_KEY_ID
-AWS_SECRET_ACCESS_KEY
+AUTH_TOKEN_PEPPER
+BLOB_READ_WRITE_TOKEN
 RESEND_API_KEY
 EMAIL_FROM
 NEXT_PUBLIC_APP_URL
-GOOGLE_PLACES_API_KEY
-NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
 RATE_LIMIT_HMAC_SECRET
 ```
+
+The daily reminder run is a Vercel Cron in `vercel.json` that calls `/api/internal/reminders` with `Authorization: Bearer $CRON_SECRET`. The S3 and Google keys in `.env.example` are kept for the planned S3 move and are not read by v1.5.
 
 Vercel egress IPs are not stable, so Atlas is locked to the database user and TLS, not to one application IP. A private network path can wait until we leave serverless.
 
@@ -552,8 +554,8 @@ Vercel egress IPs are not stable, so Atlas is locked to the database user and TL
 | Atlas down | Requests fail clearly. No partial wedding without its Admin, because that pair is one transaction |
 | Resend down, one email | The request returns an error and the organiser can retry |
 | Resend down, a job | Attempt increments. After 3 failures the job is `FAILED`. The wedding stays usable |
-| S3 PUT fails | No metadata row. The client shows a failed upload and can retry |
-| Places down | Vendor search shows that discovery is unavailable. Saved vendors, guests, and events still work |
+| Upload fails | No metadata row. The client shows a failed upload and can retry |
+| OpenStreetMap down or slow | Vendor search says discovery is unavailable and offers Open in Google Maps. A venue saves without coordinates. Saved vendors, guests, and events still work |
 | Bad Live URL | Player hidden. The public page still renders |
 
 ---
@@ -587,11 +589,11 @@ One end-to-end path, once slice 2 exists: signup → create wedding → add a fu
 | 5 | Custom sessions | Membership rules are ours. The cookie carries an id, not a privilege |
 | 6 | No email verification in v1 | Less friction. Reset still uses email |
 | 7 | Wedding is the tenant | Even though one user has one wedding |
-| 8 | S3 in Mumbai, direct upload with a checked staging copy | Bytes skip Vercel. Objects stay in-region. Signature and ETag run before the row exists |
+| 8 | Vercel Blob now, S3 in Mumbai later; direct upload either way | Bytes skip the function. No second cloud account for v1. The first bytes are checked before the row exists |
 | 9 | Stable retrievable guest and gallery tokens | Organisers must copy the same link again. Other secrets stay hashed |
 | 10 | Resend, plus Mongo jobs for bulk | One email stays in the request. Hundreds do not. No Redis and no worker fleet |
 | 11 | Scheduled reminders stay | 1 month / 1 week / 1 day before that function, plus send-now. Jobs are how they send, not a reason to drop the clock |
-| 12 | Places for discovery only | Saved vendors are our rows. No booking |
+| 12 | OpenStreetMap for discovery only | Free, keyless, real Indian listings. Saved vendors are our rows. No booking |
 | 13 | Vercel | Matches Next.js. Cron is an HTTP call with a secret |
 
 ### Aligned on 4 Oct 2026
@@ -604,7 +606,7 @@ Service layer under thin route handlers. Mongoose plus Zod. Email job states, at
 
 ### Left as The Wedding Home
 
-Households, not one row per person. Diet on RSVP. Attending counts on guest surfaces. WhatsApp via `wa.me` as the primary send. Google Maps on each function. Theme tokens and per-function overrides, not a set of generic skins. Gallery videos, hide, and a private token rather than a public gallery on `/w`. Preview as guest. The page map. S3 in Mumbai rather than R2. Many Admins and Managers on one shared ledger.
+Households, not one row per person. Diet on RSVP. Attending counts on guest surfaces. WhatsApp via `wa.me` as the primary send. A map on each function that opens Google Maps. Theme tokens and per-function overrides, not a set of generic skins. Gallery videos, hide, and a private token rather than a public gallery on `/w`. Preview as guest. The page map. Vercel Blob for v1, S3 in Mumbai when a gallery outgrows it. Many Admins and Managers on one shared ledger.
 
 ---
 
@@ -621,6 +623,6 @@ Microservices, a separate Express or Nest process, GraphQL, Kafka, RabbitMQ, Red
 3. Module layout — folders, repositories, shared helpers.
 4. Frontend — layouts, server and client components, forms.
 5. Security — CSRF details, rate-limit numbers under load, upload edge cases.
-6. Deploy — Atlas, S3, Resend domain, cron, and the first production URL.
+6. Deploy — done: Vercel with Blob and Cron, Atlas, the Resend domain, https://the-wedding-home.vercel.app.
 
 Slice 1 can start from this document and the two above. The remaining documents get sharper as that slice is built. They do not reopen the decisions in section 24.

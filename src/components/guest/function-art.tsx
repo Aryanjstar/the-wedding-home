@@ -1,55 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-
-import { play, type Performance } from "@/components/guest/sound-engine";
+import { SoundToggle, Soundtrack } from "@/components/guest/sound";
 import { functionWorlds, type MotifId } from "@/data/function-worlds";
-import type { MusicId } from "@/data/worlds";
+import { musicLabel, occasionMusic, type MusicId } from "@/data/worlds";
 import type { FunctionId } from "@/data/sample";
 
-const music: Record<FunctionId, MusicId> = {
-  haldi: "bilawal-dhol",
-  mehendi: "bhimpalasi-dadra",
-  sangeet: "yaman-teental",
-  wedding: "shankarabharanam-nadaswaram",
-  reception: "tanpura",
-};
-
-function startPiece(kind: FunctionId): Performance {
-  const context = new AudioContext();
-  const performance = play(music[kind], context, context.destination);
-  return {
-    stop: () => {
-      performance.stop(0.4);
-      window.setTimeout(() => void context.close(), 600);
-    },
-  };
-}
-
 export function FunctionTone({ kind }: { kind: FunctionId }) {
-  const world = functionWorlds[kind];
-  const [playing, setPlaying] = useState(false);
-  const audio = useRef<Performance | null>(null);
-
-  useEffect(() => () => audio.current?.stop(), []);
-
-  function toggle() {
-    if (playing) {
-      audio.current?.stop();
-      audio.current = null;
-      setPlaying(false);
-      return;
-    }
-    audio.current = startPiece(kind);
-    setPlaying(true);
-  }
-
   return (
     <div className="fn-sound-block">
-      <button className="fn-sound" type="button" aria-pressed={playing} onClick={toggle}>
-        {playing ? `Mute ${world.sound}` : `Play ${world.sound}`}
-      </button>
-      <p className="fn-credit">{world.credit}</p>
+      <Soundtrack music={(occasionMusic[kind] ?? "none") as MusicId} />
+      <SoundToggle inline />
+      <p className="fn-credit">{musicLabel(occasionMusic[kind])?.credit ?? functionWorlds[kind].credit}</p>
     </div>
   );
 }
@@ -86,7 +47,7 @@ export function FunctionMotif({ motif }: { motif: MotifId }) {
     return (
       <svg className="fn-motif" viewBox="0 0 1200 320" aria-hidden="true">
         {Array.from({ length: 16 }, (_, index) => (
-          <circle key={index} cx={360 + index * 28} cy={210 - Math.sin(index / 2) * 70} r={index % 3 === 0 ? 7 : 4} />
+          <circle key={index} cx={360 + index * 28} cy={Math.round(210 - Math.sin(index / 2) * 70)} r={index % 3 === 0 ? 7 : 4} />
         ))}
         <path d="M280 260 Q460 40 760 80 Q980 110 1040 250" />
         <path d="M520 250 L600 90 L690 250" />

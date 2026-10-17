@@ -108,7 +108,10 @@ describe("functions", () => {
 describe("themes", () => {
   it("gives each function its own world, and an Admin's override wins only for that function", () => {
     expect(resolveTheme("traditional", "haldi").world.id).toBe("haldi");
-    expect(resolveTheme("traditional", "sangeet").music).toBe("yaman-teental");
+    expect(resolveTheme("traditional", "haldi").music).toBe("dholak-boliyan");
+    expect(resolveTheme("traditional", "sangeet").music).toBe("dhol-bhangra");
+    expect(resolveTheme("traditional", "wedding").world.id).toBe("pheras");
+    expect(resolveTheme("traditional", "wedding", { world: "wedding" }).music).toBe("kalyani-nadaswaram-thavil");
     expect(resolveTheme("traditional", "custom").music).toBe("bhairavi-shehnai");
     const overridden = resolveTheme("classical", "haldi", { world: "sangeet", music: "dhol-bhangra", accent: "#123456" });
     expect([overridden.world.id, overridden.music, overridden.accent]).toEqual(["sangeet", "dhol-bhangra", "#123456"]);

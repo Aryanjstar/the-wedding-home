@@ -229,9 +229,16 @@ test.describe.serial("a family plans a wedding end to end", () => {
     const notMine = await write(context.request, baseURL!, "PUT", `/api/public/invite/${token}/rsvp`, { responses: [{ eventId: "0123456789abcdef01234567", status: "no" }] });
     expect(notMine.status()).toBe(400);
 
-    // Sound: starts silent, the guest turns it on, and it survives the next page.
-    await page.getByRole("button", { name: /Play music/ }).first().click();
-    await expect(page.locator(".g-sound").first()).toHaveAttribute("aria-pressed", "true");
+    // Music is on by default; the first touch lets it play, and the guest can mute it.
+    const sound = page.locator(".g-header .g-sound");
+    await expect(sound).toHaveAttribute("aria-pressed", "true");
+    await page.locator(".g-hero").click();
+    await sound.click();
+    await expect(sound).toHaveAttribute("aria-pressed", "false");
+    await page.reload();
+    await expect(page.locator(".g-header .g-sound")).toHaveAttribute("aria-pressed", "false");
+    await page.locator(".g-header .g-sound").click();
+    await expect(page.locator(".g-header .g-sound")).toHaveAttribute("aria-pressed", "true");
     const width = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(width).toBeLessThanOrEqual(1);
 
@@ -330,7 +337,8 @@ test.describe.serial("a family plans a wedding end to end", () => {
     // Nearby search runs through Places on the server, or says calmly that it cannot.
     await admin.getByRole("tab", { name: "Find nearby" }).click();
     await admin.getByRole("button", { name: "Search nearby" }).click();
-    await expect(admin.locator(".ws-place").first().or(admin.locator(".ui-error-note"))).toBeVisible({ timeout: 20_000 });
+    await expect(admin.locator(".ws-place").first().or(admin.locator(".ui-error-note")).or(admin.getByText("Nothing found"))).toBeVisible({ timeout: 30_000 });
+    // OpenStreetMap's Indian listings are thin, so a result is welcome but not required.
     if (await admin.locator(".ws-place").count()) {
       await admin.locator(".ws-place").first().getByRole("button", { name: "Save" }).click();
       await expect(admin.getByText(/saved to My vendors/)).toBeVisible();
@@ -403,7 +411,7 @@ test.describe.serial("a family plans a wedding end to end", () => {
     await admin.locator(".ws-pack", { hasText: "Traditional" }).click();
     await expect(admin.getByText("Traditional is the wedding's look.")).toBeVisible();
     const haldi = admin.locator(".ws-fn-theme").filter({ has: admin.locator("strong", { hasText: /^Haldi$/ }) });
-    await haldi.getByRole("combobox").nth(1).selectOption({ label: "Dhol · bhangra" });
+    await haldi.getByRole("combobox").nth(1).selectOption({ label: "Qawwali · harmonium and taali" });
     await haldi.getByRole("button", { name: "Save" }).click();
     await expect(admin.getByText("Haldi theme saved.")).toBeVisible();
     await admin.locator("input[name=brideHelpName]").fill("Lakshmi Mausi");
@@ -431,14 +439,16 @@ test.describe.serial("a family plans a wedding end to end", () => {
     await expect(page.locator(".g-fn-card")).toHaveCount(4);
     await expect(page.getByText("Lakshmi Mausi")).toBeVisible();
     await expect(page.getByText("May your home always be full of laughter.")).toBeVisible();
-    await page.getByRole("button", { name: /Play music/ }).first().click();
+    // On by default for a new guest, with the wedding pack's shehnai on the home page.
     await expect(page.locator(".g-header .g-sound")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".g-header .g-sound")).toContainText("Bhairavi · shehnai");
+    await page.locator(".g-hero").click();
     await page.locator(".g-fn-card", { hasText: "Haldi" }).click();
     await expect(page.locator(".g-stage-hero")).toContainText("हल्दी");
-    await expect(page.locator(".g-header .g-sound")).toContainText("Dhol · bhangra");
+    await expect(page.locator(".g-header .g-sound")).toContainText("Qawwali · harmonium and taali");
     await expect(page.locator(".g-header .g-sound")).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("link", { name: "Sangeet", exact: true }).click();
-    await expect(page.locator(".g-header .g-sound")).toContainText("Yaman · teental");
+    await expect(page.locator(".g-header .g-sound")).toContainText("Bhangra · dhol and tumbi");
     await page.locator(".g-header .g-sound").click();
     await expect(page.locator(".g-header .g-sound")).toHaveAttribute("aria-pressed", "false");
     expect(guestErrors).toEqual([]);

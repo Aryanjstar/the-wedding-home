@@ -7,6 +7,7 @@ import { SessionProvider } from "@/components/session";
 import "./globals.css";
 import "../styles/app.css";
 import "../styles/guest.css";
+import "../styles/home.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const playfair = Playfair_Display({ subsets: ["latin"], weight: ["400", "500", "600"], style: ["normal", "italic"], variable: "--font-serif" });

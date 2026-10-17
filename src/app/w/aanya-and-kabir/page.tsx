@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { GuestChrome } from "@/components/guest/chrome";
+import { Soundtrack } from "@/components/guest/sound";
 import { blessings, couple, families, functions, helplines, stays } from "@/data/sample";
 
 export const metadata: Metadata = { title: "Aanya & Kabir · The Wedding Home" };
@@ -10,6 +11,7 @@ export const metadata: Metadata = { title: "Aanya & Kabir · The Wedding Home" }
 export default function PublicHomePage() {
   return (
     <GuestChrome>
+      <Soundtrack music="bhairavi-shehnai" />
       <section className="hero-photo">
         <Image src="/photos/wedding.jpg" alt="Palace lawn prepared for the wedding" fill priority sizes="100vw" />
         <div className="veil" />

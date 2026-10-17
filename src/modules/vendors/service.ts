@@ -9,26 +9,11 @@ import { EventModel, ExpenseModel, VendorModel, WeddingModel } from "@/server/db
 import type { VendorDoc } from "@/server/db/documents";
 import { ServiceError } from "@/server/http/handle";
 import { consumeRateLimit } from "@/server/http/rate-limit";
+import { geocodeFirst, MapsUnavailableError, nearby, placeById } from "@/server/maps/osm";
 
 export const VENDOR_CATEGORIES = ["photographer", "videographer", "venue", "caterer", "decorator", "dj", "makeup", "mehendi_artist", "pandit", "choreographer", "florist", "planner", "transport", "other"] as const;
 export type VendorCategory = (typeof VENDOR_CATEGORIES)[number];
 
-const SEARCH_WORDS: Record<VendorCategory, string> = {
-  photographer: "wedding photographer",
-  videographer: "wedding videographer",
-  venue: "wedding venue banquet hall",
-  caterer: "wedding caterer",
-  decorator: "wedding decorator",
-  dj: "wedding DJ",
-  makeup: "bridal makeup artist",
-  mehendi_artist: "mehendi artist",
-  pandit: "pandit for wedding",
-  choreographer: "sangeet choreographer",
-  florist: "florist",
-  planner: "wedding planner",
-  transport: "wedding car rental",
-  other: "wedding services",
-};
 
 function presentVendor(row: VendorDoc & { _id: unknown }, spent: Map<string, number>) {
   return {
@@ -45,13 +30,12 @@ function presentVendor(row: VendorDoc & { _id: unknown }, spent: Map<string, num
     eventIds: (row.eventIds ?? []).map(idOf),
     notes: row.notes ?? null,
     source: row.source,
-    rating: row.place?.rating ?? null,
-    googlePlaceId: row.place?.googlePlaceId ?? null,
-    mapsUrl: row.place?.googlePlaceId
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(row.name)}&query_place_id=${row.place.googlePlaceId}`
-      : row.address
+    placeId: row.place?.id ?? null,
+    mapsUrl: row.address
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${row.name}, ${row.address}`)}`
-        : null,
+        : row.place?.lat !== undefined && row.place?.lat !== null && row.place?.lng !== undefined && row.place?.lng !== null
+          ? `https://www.google.com/maps/search/?api=1&query=${row.place.lat},${row.place.lng}`
+          : null,
   };
 }
 
@@ -180,54 +164,10 @@ export async function deleteVendor(request: Request, vendorId: string) {
   await ExpenseModel.updateMany({ weddingId, vendorId: row._id }, { $set: { vendorLabel: row.name }, $unset: { vendorId: "" } });
 }
 
-/* ---------- Nearby search through Google Places, server side ---------- */
-
-type Place = {
-  id: string;
-  displayName?: { text?: string };
-  formattedAddress?: string;
-  rating?: number;
-  userRatingCount?: number;
-  location?: { latitude: number; longitude: number };
-  nationalPhoneNumber?: string;
-  internationalPhoneNumber?: string;
-  websiteUri?: string;
-  googleMapsUri?: string;
-};
-
-const FIELDS = "places.id,places.displayName,places.formattedAddress,places.rating,places.userRatingCount,places.location,places.nationalPhoneNumber,places.websiteUri,places.googleMapsUri";
-
-function placesKey() {
-  const key = (process.env.GOOGLE_PLACES_API_KEY ?? "").trim();
-  if (!key || key === "replace-me") return null;
-  return key;
-}
+/* ---------- Nearby search through OpenStreetMap, server side ---------- */
 
 function unavailable(): never {
   throw new ServiceError(503, "INTERNAL_ERROR", "DISCOVERY_UNAVAILABLE", "Nearby search is not available right now. Saved vendors still work, and Open in Google Maps does too.");
-}
-
-async function searchText(body: Record<string, unknown>, fieldMask = FIELDS): Promise<Place[]> {
-  const key = placesKey();
-  if (!key) unavailable();
-  let response: Response;
-  try {
-    response = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      signal: AbortSignal.timeout(10_000),
-      headers: { "Content-Type": "application/json", "X-Goog-Api-Key": key, "X-Goog-FieldMask": fieldMask },
-      body: JSON.stringify({ languageCode: "en", regionCode: "IN", ...body }),
-    });
-  } catch {
-    unavailable();
-  }
-  if (!response.ok) {
-    const reason = ((await response.json().catch(() => null)) as { error?: { status?: string; message?: string } } | null)?.error;
-    console.error(JSON.stringify({ operation: "places-search", status: response.status, reason: reason?.status, message: reason?.message?.slice(0, 160) }));
-    unavailable();
-  }
-  const json = (await response.json().catch(() => null)) as { places?: Place[] } | null;
-  return json?.places ?? [];
 }
 
 export function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
@@ -236,6 +176,11 @@ export function distanceM(a: { lat: number; lng: number }, b: { lat: number; lng
   const dLng = (b.lng - a.lng) * rad;
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
   return Math.round(2 * 6_371_000 * Math.asin(Math.sqrt(h)));
+}
+
+function googleLink(name: string, where: string | null, point: { lat: number; lng: number }) {
+  const query = [name, where].filter(Boolean).join(", ") || `${point.lat},${point.lng}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 const searchSchema = z.object({
@@ -251,87 +196,99 @@ export async function searchVendors(request: Request, params: URLSearchParams) {
     category: params.get("category") || "photographer",
     q: params.get("q") || undefined,
   });
-  await consumeRateLimit("places-search", idOf(user._id), 60, 60 * 60 * 1000);
+  await consumeRateLimit("vendor-search", idOf(user._id), 60, 60 * 60 * 1000);
   const wedding = await WeddingModel.findById(weddingId);
   if (!wedding) notFound("wedding");
   let near = wedding.city;
   let centre: { lat: number; lng: number } | null = null;
+  let radius = 12_000;
   if (input.eventId) {
     const event = await EventModel.findOne({ _id: input.eventId, weddingId });
     if (!event) notFound("function");
-    const query = venueQuery(event.venue);
-    if (query) {
-      near = query;
-      const [anchor] = await searchText({ textQuery: query, pageSize: 1 }, "places.location");
-      if (anchor?.location) centre = { lat: anchor.location.latitude, lng: anchor.location.longitude };
-    }
+    const city = event.venue?.city ?? wedding.city;
+    const place = event.venue?.name ?? event.venue?.address;
+    near = place ? (place.toLowerCase().includes(city.toLowerCase()) ? place : `${place}, ${city}`) : city;
+    const stored = event.venue?.location?.coordinates;
+    centre = stored?.length === 2 ? { lng: stored[0], lat: stored[1] } : await geocodeFirst([venueQuery(event.venue), event.venue?.address && `${event.venue.address}, ${event.venue.city ?? wedding.city}`]);
+    radius = 8_000;
   }
-  const words = input.q ? `${input.q} ${SEARCH_WORDS[input.category]}` : SEARCH_WORDS[input.category];
-  const places = await searchText({
-    textQuery: `${words} near ${near}`,
-    pageSize: 12,
-    ...(centre ? { locationBias: { circle: { center: { latitude: centre.lat, longitude: centre.lng }, radius: 15000 } } } : {}),
-  });
-  const saved = await VendorModel.find({ weddingId, "place.googlePlaceId": { $in: places.map((place) => place.id) } }, { "place.googlePlaceId": 1 });
-  const savedIds = new Map(saved.map((row) => [row.place?.googlePlaceId ?? "", idOf(row._id)]));
+  centre ??= await geocodeFirst([`${wedding.city}, India`]);
+  if (!centre) throw new ServiceError(400, "VALIDATION_ERROR", "PLACE_NOT_FOUND", `We could not find ${near} on the map. Check the venue or the city.`);
+  let places;
+  try {
+    places = await nearby(centre, input.category, radius, input.q);
+    if (places.length < 4) places = await nearby(centre, input.category, radius * 2.5, input.q);
+    places = places.filter((place) => distanceM(centre, place) <= radius * 2.5);
+  } catch (error) {
+    if (error instanceof MapsUnavailableError) unavailable();
+    throw error;
+  }
+  const words = input.q ? input.q.toLowerCase().split(/\s+/).filter(Boolean) : [];
+  const ranked = places
+    .map((place) => ({ place, distance: distanceM(centre, place), match: words.some((word) => place.name.toLowerCase().includes(word)) }))
+    .sort((a, b) => Number(b.match) - Number(a.match) || a.distance - b.distance)
+    .slice(0, 24);
+  const saved = await VendorModel.find({ weddingId, "place.id": { $in: ranked.map((item) => item.place.id) } }, { "place.id": 1 });
+  const savedIds = new Map(saved.map((row) => [row.place?.id ?? "", idOf(row._id)]));
   return {
     near,
-    places: places.map((place) => ({
-      googlePlaceId: place.id,
-      name: place.displayName?.text ?? "Unnamed",
-      rating: place.rating ?? null,
-      ratingCount: place.userRatingCount ?? null,
-      address: place.formattedAddress ?? null,
-      phone: place.nationalPhoneNumber ?? null,
-      website: place.websiteUri ?? null,
-      mapsUrl: place.googleMapsUri ?? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.displayName?.text ?? "")}&query_place_id=${place.id}`,
-      distanceM: centre && place.location ? distanceM(centre, { lat: place.location.latitude, lng: place.location.longitude }) : null,
-      savedVendorId: savedIds.get(place.id) ?? null,
-    })),
+    centre,
+    attribution: "Map data © OpenStreetMap contributors",
+    places: ranked.map(({ place, distance }) => {
+      const address = place.address;
+      return {
+        placeId: place.id,
+        name: place.name,
+        address,
+        phone: place.phone,
+        website: place.website,
+        lat: place.lat,
+        lng: place.lng,
+        distanceM: distance,
+        mapsUrl: googleLink(place.name, address ?? wedding.city, place),
+        osmUrl: `https://www.openstreetmap.org/${place.id}`,
+        savedVendorId: savedIds.get(place.id) ?? null,
+      };
+    }),
   };
 }
 
 const saveSchema = z.object({
-  place: z.object({ googlePlaceId: z.string().trim().min(5).max(300), lat: z.number().optional(), lng: z.number().optional() }).strict(),
+  place: z.object({ id: z.string().trim().regex(/^(node|way|relation)\/\d{1,15}$/), lat: z.number().optional(), lng: z.number().optional() }).strict(),
   category: z.enum(VENDOR_CATEGORIES),
   eventIds: z.array(objectId).max(30).optional(),
 }).strict();
 
-/** Saves a search result. The server refetches the place; the client does not choose what is stored. */
+/** Saves a search result. The server reads the place again; the client does not choose what is stored. */
 export async function saveVendorFromPlace(request: Request, body: unknown) {
   const { user, weddingId } = await requireMember(request);
   const input = saveSchema.parse(body);
-  const key = placesKey();
-  if (!key) unavailable();
   const count = await VendorModel.countDocuments({ weddingId });
   if (count >= 300) limitReached("This wedding already has 300 vendors.");
   const eventIds = [...new Set(input.eventIds ?? [])];
   await assertEventsOnWedding(weddingId, eventIds, "eventIds");
-  let response: Response;
-  try {
-    response = await fetch(`https://places.googleapis.com/v1/places/${encodeURIComponent(input.place.googlePlaceId)}`, {
-      signal: AbortSignal.timeout(10_000),
-      headers: { "X-Goog-Api-Key": key, "X-Goog-FieldMask": "id,displayName,formattedAddress,rating,nationalPhoneNumber,websiteUri" },
-    });
-  } catch {
-    unavailable();
-  }
-  if (response.status === 404 || response.status === 400) notFound("place");
-  if (!response.ok) unavailable();
-  const place = (await response.json()) as Place;
-  if (await VendorModel.exists({ weddingId, "place.googlePlaceId": place.id })) {
+  if (await VendorModel.exists({ weddingId, "place.id": input.place.id })) {
     throw new ServiceError(409, "CONFLICT", "ALREADY_SAVED", "That vendor is already in My vendors.");
   }
+  let place;
+  try {
+    place = await placeById(input.place.id);
+  } catch (error) {
+    if (error instanceof MapsUnavailableError) unavailable();
+    throw error;
+  }
+  if (!place) notFound("place");
+  const { phone, website, address } = place;
   try {
     const row = await VendorModel.create({
       weddingId,
-      name: (place.displayName?.text ?? "Vendor").slice(0, 120),
+      name: place.name.slice(0, 120),
       category: input.category,
-      ...(place.nationalPhoneNumber ? { phone: place.nationalPhoneNumber.slice(0, 30) } : {}),
-      ...(place.websiteUri ? { website: place.websiteUri.slice(0, 300) } : {}),
-      ...(place.formattedAddress ? { address: place.formattedAddress.slice(0, 300) } : {}),
+      ...(phone ? { phone: phone.slice(0, 30) } : {}),
+      ...(website ? { website: (/^https?:/i.test(website) ? website : `https://${website}`).slice(0, 300) } : {}),
+      ...(address ? { address: address.slice(0, 300) } : {}),
       ...(eventIds.length ? { eventIds } : {}),
-      place: { googlePlaceId: place.id, ...(typeof place.rating === "number" ? { rating: place.rating } : {}) },
+      place: { provider: "osm", id: place.id, lat: place.lat, lng: place.lng },
       source: "places",
       createdBy: user._id,
       schemaVersion: 1,

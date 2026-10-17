@@ -1,9 +1,9 @@
 # The Wedding Home — database design
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.1  
+**Version:** 1.2  
 **Status:** Ready for slice 1  
-**Date:** 4 Oct 2026 (1.0 written 30 Sep 2026)  
+**Date:** 18 Oct 2026 (1.2 records the file store, OpenStreetMap places, and media_objects; 1.1 was 4 Oct 2026)  
 **Audience:** Anyone writing a Mongoose model, a repository, or a migration
 
 **1.1** is the gap pass against the Make My Marriage database reference. Collections did not change. The additions are the ones an implementer would otherwise invent: which slice creates which collection, bcrypt, atomic RSVP capacity, gallery delete that keeps the row when storage fails, a unique `storageKey`, the public media prefix, and decisions for the open items in §12.
@@ -60,12 +60,15 @@ Founding rules, repeated because every choice below follows from them:
 ```text
 CivilDate   "2027-02-14"
 
-MediaRef    { key, contentType, bytes }         S3 object in our bucket. key starts with weddings/{weddingId}/
+MediaRef    { key, contentType, bytes }         A stored file. key starts with weddings/{weddingId}/
 
-Place       { name?, address, city, googlePlaceId?,
-              location: { type: "Point", coordinates: [lng, lat] } }
+Place       { name?, address?, city?,
+              location?: { type: "Point", coordinates: [lng, lat] } }
+            v1.5: the organiser types name, address, and city; location is looked up
+            on OpenStreetMap's Nominatim when the venue is saved, and is absent when
+            nothing matched. A city alone is not a venue and gets no map.
             GeoJSON order is longitude first. The API speaks { lat, lng } and the
-            repository converts both ways so no other code touches the order.
+            service converts both ways so no other code touches the order.
 
 Diet        { veg, nonVeg, jain }   three integers >= 0
 
@@ -458,15 +461,15 @@ There is no stored total. The rupee total is `sum(amountInr)` over one wedding, 
 | `agreedCostInr` | int | no | |
 | `eventIds` | ObjectId[] | no | ≤ 30 |
 | `notes` | string | no | |
-| `place` | `{ googlePlaceId, location }` | no | Present when saved from the nearby search |
+| `place` | `{ provider: "osm", id, lat, lng }` | no | Present when saved from the nearby search. `id` is the OpenStreetMap element, such as `node/123` |
 | `source` | `manual` or `places` | yes | |
 
 Indexes:
 - `{ weddingId: 1, category: 1 }`
 - `{ weddingId: 1, eventIds: 1 }` **multikey**
-- `{ weddingId: 1, "place.googlePlaceId": 1 }` **unique, partial** where the field is a string. Saving the same place twice is refused
+- `{ weddingId: 1, "place.id": 1 }` **unique, partial** where the field is a string. Saving the same place twice is refused
 
-After a save, the row does not depend on Google (architecture §14). A vendor without a place is fully valid.
+After a save, the row does not depend on the map (architecture §14). A vendor without a place is fully valid.
 
 ### 5.13 `gallery_items`
 
@@ -476,10 +479,11 @@ After a save, the row does not depend on Google (architecture §14). A vendor wi
 | `kind` | `photo` or `video` | yes | |
 | `contentType` | string | yes | `image/jpeg`, `image/png`, `image/webp`, `video/mp4`, `video/quicktime` |
 | `bytes` | int | yes | From the checked object, not the client's claim |
-| `storageKey` | string | yes | `weddings/{weddingId}/gallery/{itemId}` |
+| `storageKey` | string | yes | `weddings/{weddingId}/gallery/{itemId}`, or the Vercel Blob pathname |
+| `publicPath` | string | no | v1.5: the Blob URL when the file lives in Vercel Blob. Absent when the bytes are in `media_objects` |
 | `eventId` | ObjectId | no | Absent means "Other / wedding memories" |
 | `uploadedBy` | `{ type: "organiser" or "guest", userId? }` | yes | Guests are anonymous, so there is no id for them |
-| `hidden` | bool | yes | Hidden items stay in S3 and drop out of guest views |
+| `hidden` | bool | yes | Hidden items stay stored and drop out of guest views |
 
 Indexes:
 - `{ storageKey: 1 }` **unique**. Two completes of one upload cannot insert two rows
@@ -488,7 +492,7 @@ Indexes:
 
 The list cursor is opaque and binds the filter (`eventId`, `hidden`) plus the last `_id`. A cursor presented with a different filter is a validation error, not a different page.
 
-Nothing here stores a URL. Signed URLs are made per request.
+v1.5 stores the Blob URL in `publicPath` and lists up to 2,000 items in one response; the cursor list above is the S3 design. Files under 4 MB sent through the app live in **`media_objects`** (`storageKey` unique, `contentType`, `bytes`, `data` as binary), capped at 200 per wedding.
 
 ### 5.14 `email_jobs`
 
@@ -723,6 +727,6 @@ Index memory: the largest indexes are `rsvps` and `gallery_items`, tens of megab
 ### Still open
 
 1. **Per-wedding limits** in §2 are starting configuration. The 2,000 household ceiling is double the design target. Raise them in config when a real wedding needs it. No schema change.
-2. **Places terms of service**, before slice 6. Saved vendors currently copy name, address, and contact after the organiser saves a place (architecture §14). Google restricts how long Places content may be stored, with place ids as the usual exception. Check the current terms before that slice. If the terms forbid the copy, store `googlePlaceId` plus only what the organiser types.
+2. **Map data licence.** Resolved 18 Oct 2026 by moving discovery to OpenStreetMap. ODbL allows storing what we copy into a vendor row; the search results show the required attribution.
 3. **Guest CSV import** is not in v1. The Guests page stays as specified. An import action later needs no schema change.
 4. **S3 multipart for large videos**, before slice 7. Until a spike says otherwise, gallery video is one PUT (API §9).

@@ -42,6 +42,13 @@ Run this after the PRD, system design, database design, and API design exist, an
 - [ ] Slice 1 renders without importing later modules. Counts for later slices are zeros
 - [ ] Open items are decided, or named with a later slice. Slice 1 has no open item
 
+## Before merging a slice
+
+- [ ] The browser journey covers the slice: every add, edit, and delete, as each role, on a phone width, with nothing thrown in the console
+- [ ] Mail the slice sends was received at a real inbox (plus-addresses of one account)
+- [ ] Every external provider the slice calls was tried from the server with the real key, and its failure path shows a calm message
+- [ ] After deploy, the journey passes against production with a fresh tag
+
 ## Reference products
 
 - [ ] Differences from a reference are listed as kept, adopted, or refused

@@ -198,7 +198,7 @@ export interface VendorDoc {
   agreedCostInr?: number | null;
   eventIds?: Id[];
   notes?: string | null;
-  place?: { googlePlaceId?: string | null; rating?: number | null } | null;
+  place?: { provider?: "osm" | null; id?: string | null; lat?: number | null; lng?: number | null } | null;
   source: "manual" | "places";
   createdBy: Id;
   schemaVersion: number;

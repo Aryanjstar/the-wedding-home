@@ -16,6 +16,7 @@ The public site opens on **Plan the wedding**. The first screen asks for the bri
 | Family workspace, gallery trial, published theme | Complete — checked locally | 2026-10-17 |
 | Vercel deployment | Live — the-wedding-home.vercel.app redeploys from main | 2026-10-17 |
 | Rebuilt family app, all seven slices, themed guest site with music | Complete — end to end, see milestone 5 | 2026-10-18 |
+| Homepage, music on by default, OpenStreetMap vendor search | Complete — end to end, see milestone 6 | 2026-10-18 |
 
 ## 1. Application scaffold
 
@@ -163,7 +164,7 @@ The earlier screens saved some things and then crashed (`event.currentTarget` re
 
 ### Boundaries and deviations
 
-- **Nearby search:** Google answers "API key not valid" for the `GOOGLE_PLACES_API_KEY` in `.env.local`, and search is unavailable on production too. The page then says discovery is unavailable and offers Open in Google Maps. Set a key with Places API (New) enabled, locally and on Vercel.
+- **Nearby search:** Google answered "API key not valid" for `GOOGLE_PLACES_API_KEY`. Superseded by milestone 6, which moves search to OpenStreetMap. The page then says discovery is unavailable and offers Open in Google Maps. Set a key with Places API (New) enabled, locally and on Vercel.
 - **Maps:** the venue map is the keyless Google Maps embed from the venue, address, and city. API.md asks for latitude and longitude from place autocomplete; that waits for a browser Maps key.
 - **Files:** still Vercel Blob (when `BLOB_READ_WRITE_TOKEN` is set) or MongoDB under 4 MB, not S3 with upload intents. The gallery list is one response of up to 2,000 items, not the cursor list in API §7.12, and download goes through the file route rather than a signed URL.
 - **Reminder queue response** returns `silent` and `yes` lists instead of one paged `items` list.
@@ -171,9 +172,36 @@ The earlier screens saved some things and then crashed (`event.currentTarget` re
 - A second Vercel project named `frontend` is connected to this repository and has failed on every commit since before this change. The live site is the `the-wedding-home` project, which deploys.
 - The designed `/w/aanya-and-kabir` sample keeps its own pages; its function pages now use the new music engine. Seeded dev organisers still sign in with the preview password.
 
+## 6. Homepage, music on by default, OpenStreetMap vendor search
+
+**Status:** Complete — end to end
+
+**Recorded on:** 2026-10-18
+
+### Implemented
+
+- **Homepage** (`src/components/home-page.tsx`, `src/styles/home.css`): a maroon-and-gold hero with a marigold toran, the couple in a mehrab arch, and floating cards that show the product (countdown and muhurat, a household's reply with diet, the WhatsApp invitation, the function's music); a strip of the functions in Devanagari; each function's world with a Listen button; a feature bento for the family; family and guest columns; three steps in Devanagari numerals; photographs in arches; a closing call to action. No invented numbers or testimonials.
+- **Music on by default.** Every function plays a piece chosen for its occasion; the wedding pack plays on the site's home. Browsers allow sound only after a touch, so it starts on the guest's first tap or key; the button reads “Tap for music” until then and always mutes after. A mute is remembered. The designed Aanya sample uses the same player.
+- **Music library: 22 original pieces**, synthesised in the browser. North: Bhairavi shehnai, baraat shehnai and dhol, pheras with shankh and bells, boliyan on dholak and chimta, Bilawal flute and dhol, ghoomar in Raga Mand on sarangi, Bhimpalasi santoor, Pilu sarangi, Yaman sitar with tabla and ghungroo, garba with dandiya, bhangra, qawwali with harmonium and taali, Des sitar, Kafi santoor, Bageshri bansuri, tanpura. South: Kalyani nadaswaram with thavil, kettimelam, Shankarabharanam nadaswaram, Mohanam veena with mridangam, Hamsadhwani flute, kolattam sticks. New voices: sarangi, harmonium, veena; new percussion: dholak, mridangam, thavil, manjira, dandiya, taali, shankh. Admins pick any piece per function, grouped North and South.
+- **Best piece per occasion** (`occasionMusic` in `src/data/worlds.ts`), recorded in PRD §11. A new **Pheras (North)** world (sindoor and gold, mandap and agni) is now the default for a wedding; the temple world becomes **Wedding (South)** with nadaswaram and thavil.
+- **OpenStreetMap instead of Google Places** (`src/server/maps/osm.ts`): Nominatim stores coordinates for each venue on save, and nearby vendor search combines Photon name searches and Nominatim category searches around the venue, nearest first, with OSM attribution. Saving reads the place back by its OSM id. The venue map stays Google's keyless embed with Open in Google Maps.
+- **Docs:** ARCHITECTURE v1.5, DATABASE v1.2, API v1.2, and PRD v1.5 record Vercel Blob (with the reason and the way back to S3), OpenStreetMap, venue coordinates, and music on by default. The playbook gains “prove each slice in a real browser” and the provider rule; the cross-check and AGENTS templates and this repo's AGENTS.md require the browser journey before a merge.
+
+### Validation
+
+- All 22 pieces played in Chrome through an analyser: every piece sounds, no errors, peaks under 0.55 after levelling.
+- Vendor search near the Jaipur Haldi venue returned real places in 1 to 4 seconds (caterers 786 m and 953 m away, florists at 1.7 km, marriage gardens, salons); saving one copied its website and address, and saving it again was refused.
+- Homepage: no horizontal overflow at 1440 and 390 px, no hydration warnings.
+- `npm test` 41 passed; typecheck and lint clean; the 15-step browser journey passed locally and on production with music on by default, the mute remembered across a reload, the per-function piece following the guest from the site home to Haldi to Sangeet.
+
+### Boundaries
+
+- OpenStreetMap's Indian listings are thinner than Google's and have no ratings. Public Overpass servers were too slow or throttled and are not used. Nominatim is limited to one request a second per server instance.
+- A phone in silent mode or with no audio device shows “Music on” but cannot play; the mute still works.
+
 ## Upcoming development
 
-Set a working Google Places key. Then a map pin from real place autocomplete, S3 with upload intents for very large galleries, and a paged gallery list.
+S3 with upload intents for very large galleries, and a paged gallery list. Optional: a hosted geocoder or Places key if OpenStreetMap coverage is too thin for a city.
 
 ## Updating this document
 

@@ -6,24 +6,37 @@ import { themePack, type ThemePack } from "@/data/theme-packs";
  * All music is original and generated in the browser, so it is rights-cleared by construction.
  */
 
-export const worldIds = ["haldi", "mehendi", "sangeet", "wedding", "reception", "engagement"] as const;
+export const worldIds = ["haldi", "mehendi", "sangeet", "pheras", "wedding", "reception", "engagement"] as const;
 export type WorldId = (typeof worldIds)[number];
 
 export const musicIds = [
-  "bilawal-dhol",
-  "bhimpalasi-dadra",
-  "yaman-teental",
-  "shankarabharanam-nadaswaram",
-  "tanpura",
   "bhairavi-shehnai",
+  "yaman-shehnai-baraat",
+  "phera-shankh",
+  "dholak-boliyan",
+  "bilawal-dhol",
+  "ghoomar-mand",
+  "bhimpalasi-dadra",
+  "pilu-sarangi",
+  "yaman-teental",
+  "garba-dandiya",
+  "dhol-bhangra",
+  "qawwali-taali",
   "des-sitar",
   "kafi-santoor",
-  "dhol-bhangra",
+  "bageshri-bansuri",
+  "tanpura",
+  "kalyani-nadaswaram-thavil",
+  "kettimelam",
+  "shankarabharanam-nadaswaram",
+  "mohanam-veena",
+  "hamsadhwani-flute",
+  "kolattam-sticks",
   "none",
 ] as const;
 export type MusicId = (typeof musicIds)[number];
 
-export type MotifId = "bandhani" | "jaali" | "ghungroo" | "gopuram" | "chhatri" | "toran";
+export type MotifId = "bandhani" | "jaali" | "ghungroo" | "gopuram" | "chhatri" | "toran" | "mandap";
 
 export type World = {
   id: WorldId;
@@ -52,7 +65,7 @@ export const worlds: Record<WorldId, World> = {
     region: "Rajasthan · bandhani and marigold",
     motif: "bandhani",
     motion: "playful",
-    music: "bilawal-dhol",
+    music: "dholak-boliyan",
     sky: "#f6d978",
     ground: "#e7b84a",
     glow: "#fff4c4",
@@ -69,7 +82,7 @@ export const worlds: Record<WorldId, World> = {
     region: "Mughal north · henna and jaali",
     motif: "jaali",
     motion: "slow",
-    music: "bhimpalasi-dadra",
+    music: "ghoomar-mand",
     sky: "#e7c4ae",
     ground: "#c9d4c4",
     glow: "#f3d7c8",
@@ -86,7 +99,7 @@ export const worlds: Record<WorldId, World> = {
     region: "North dance night · ghungroo",
     motif: "ghungroo",
     motion: "dance",
-    music: "yaman-teental",
+    music: "dhol-bhangra",
     sky: "#1a2030",
     ground: "#12151c",
     glow: "#6b3a18",
@@ -96,14 +109,31 @@ export const worlds: Record<WorldId, World> = {
     accentText: "#1a1208",
     dark: true,
   },
+  pheras: {
+    id: "pheras",
+    label: "Pheras · North",
+    script: "विवाह",
+    region: "The mandap · agni, sindoor, and marigold",
+    motif: "mandap",
+    motion: "slow",
+    music: "phera-shankh",
+    sky: "#8e1b24",
+    ground: "#4f0d15",
+    glow: "#f5b041",
+    line: "#f2cf86",
+    ink: "#fff3e0",
+    accent: "#f2b134",
+    accentText: "#2a0a0e",
+    dark: true,
+  },
   wedding: {
     id: "wedding",
-    label: "Wedding",
+    label: "Wedding · South temple",
     script: "विवाह",
-    region: "Temple and mandap · gopuram and kolam",
+    region: "Temple and mandapam · gopuram and kolam",
     motif: "gopuram",
     motion: "slow",
-    music: "shankarabharanam-nadaswaram",
+    music: "kalyani-nadaswaram-thavil",
     sky: "#faf6f1",
     ground: "#f3d9d4",
     glow: "#ffffff",
@@ -120,7 +150,7 @@ export const worlds: Record<WorldId, World> = {
     region: "Rajput palace · chhatri at night",
     motif: "chhatri",
     motion: "still",
-    music: "tanpura",
+    music: "bageshri-bansuri",
     sky: "#14181f",
     ground: "#1c1814",
     glow: "#3a342c",
@@ -149,16 +179,46 @@ export const worlds: Record<WorldId, World> = {
   },
 };
 
-export const music: Record<Exclude<MusicId, "none">, { label: string; credit: string }> = {
-  "bilawal-dhol": { label: "Bilawal · dhol", credit: "An original phrase in Raga Bilawal over a folk dhol pulse." },
-  "bhimpalasi-dadra": { label: "Bhimpalasi · dadra", credit: "An original phrase in Raga Bhimpalasi, in a slow six-beat dadra." },
-  "yaman-teental": { label: "Yaman · teental", credit: "An original phrase in Raga Yaman with tabla and ghungroo." },
-  "shankarabharanam-nadaswaram": { label: "Shankarabharanam · nadaswaram", credit: "An original phrase in Raga Shankarabharanam, voiced like a nadaswaram, with temple bells." },
-  tanpura: { label: "Tanpura · Sa and Pa", credit: "An original tanpura drone on Sa and Pa." },
-  "bhairavi-shehnai": { label: "Bhairavi · shehnai", credit: "An original shehnai-like phrase in Raga Bhairavi." },
-  "des-sitar": { label: "Des · sitar", credit: "An original plucked phrase in Raga Des over a tanpura." },
-  "kafi-santoor": { label: "Kafi · santoor", credit: "An original hammered phrase in Raga Kafi." },
-  "dhol-bhangra": { label: "Dhol · bhangra", credit: "An original dhol and chimta groove." },
+export type MusicInfo = { label: string; credit: string; region: "North" | "South" | "Everywhere"; instruments: string };
+
+export const music: Record<Exclude<MusicId, "none">, MusicInfo> = {
+  "bhairavi-shehnai": { label: "Bhairavi · shehnai", region: "North", instruments: "Shehnai, dholak, drone", credit: "A mangal shehnai phrase in Raga Bhairavi, the sound of an auspicious morning." },
+  "yaman-shehnai-baraat": { label: "Baraat · shehnai and dhol", region: "North", instruments: "Shehnai, dhol, manjira", credit: "Raga Yaman on shehnai over a walking dhol, for the groom's procession." },
+  "phera-shankh": { label: "Pheras · shehnai, shankh, bells", region: "North", instruments: "Shehnai, shankh, manjira, temple bells", credit: "Slow Bhairavi shehnai with the conch and bells, for the seven rounds of the fire." },
+  "dholak-boliyan": { label: "Boliyan · dholak and chimta", region: "North", instruments: "Harmonium, dholak, chimta, claps", credit: "A Punjabi folk lilt in Raga Khamaj with dholak, chimta, and taali." },
+  "bilawal-dhol": { label: "Bilawal · flute and dhol", region: "North", instruments: "Bansuri, dhol", credit: "A bright Raga Bilawal flute over a folk dhol." },
+  "ghoomar-mand": { label: "Ghoomar · Raga Mand on sarangi", region: "North", instruments: "Sarangi, dholak, manjira, tanpura", credit: "Rajasthan's Raga Mand on a bowed sarangi, turning in a six-beat dadra." },
+  "bhimpalasi-dadra": { label: "Bhimpalasi · santoor", region: "North", instruments: "Santoor, tabla, tanpura", credit: "Afternoon Raga Bhimpalasi on santoor in a slow dadra." },
+  "pilu-sarangi": { label: "Pilu · sarangi", region: "North", instruments: "Sarangi, tabla, tanpura", credit: "Raga Pilu, light and tender, on sarangi with tabla." },
+  "yaman-teental": { label: "Yaman · sitar and tabla", region: "North", instruments: "Sitar, tabla, ghungroo, tanpura", credit: "Evening Raga Yaman on sitar, with tabla and ankle bells." },
+  "garba-dandiya": { label: "Garba · dhol and dandiya", region: "North", instruments: "Harmonium, dhol, dandiya sticks", credit: "A Gujarati six-eight garba with dhol and the click of dandiya sticks." },
+  "dhol-bhangra": { label: "Bhangra · dhol and tumbi", region: "North", instruments: "Tumbi, dhol, chimta", credit: "A Punjabi bhangra chaal on dhol, with tumbi and chimta." },
+  "qawwali-taali": { label: "Qawwali · harmonium and taali", region: "North", instruments: "Harmonium, dholak, hand claps", credit: "A Sufi night in Raga Kafi with harmonium, dholak, and claps." },
+  "des-sitar": { label: "Des · sitar", region: "North", instruments: "Sitar, tabla, tanpura", credit: "Raga Des on sitar, the colour of the monsoon." },
+  "kafi-santoor": { label: "Kafi · santoor", region: "North", instruments: "Santoor, tanpura", credit: "Raga Kafi on hammered santoor strings." },
+  "bageshri-bansuri": { label: "Bageshri · bansuri", region: "North", instruments: "Bansuri, tabla, tanpura", credit: "Night Raga Bageshri on bamboo flute, unhurried." },
+  tanpura: { label: "Tanpura · Sa and Pa", region: "Everywhere", instruments: "Tanpura", credit: "A tanpura drone on Sa and Pa. No melody." },
+  "kalyani-nadaswaram-thavil": { label: "Kalyani · nadaswaram and thavil", region: "South", instruments: "Nadaswaram, thavil, shruti", credit: "Mangala vadyam in Raga Kalyani: nadaswaram with thavil in Adi talam." },
+  kettimelam: { label: "Kettimelam · the muhurtham", region: "South", instruments: "Nadaswaram, thavil, bells", credit: "The fast, joyful crescendo that drowns everything as the thali is tied." },
+  "shankarabharanam-nadaswaram": { label: "Shankarabharanam · nadaswaram", region: "South", instruments: "Nadaswaram, bells, shruti", credit: "Slow Raga Shankarabharanam on nadaswaram, with temple bells." },
+  "mohanam-veena": { label: "Mohanam · veena and mridangam", region: "South", instruments: "Veena, mridangam, tanpura", credit: "Pentatonic Raga Mohanam on veena with mridangam." },
+  "hamsadhwani-flute": { label: "Hamsadhwani · flute and mridangam", region: "South", instruments: "Carnatic flute, mridangam, tanpura", credit: "Raga Hamsadhwani, sung to open anything auspicious." },
+  "kolattam-sticks": { label: "Kolattam · flute and sticks", region: "South", instruments: "Flute, mridangam, kolattam sticks", credit: "A South Indian stick dance for the nalangu and the haldi." },
+};
+
+/**
+ * The best piece for each occasion, chosen once so every function plays something fitting by default.
+ * An Admin can choose any other piece per function on Website & themes.
+ */
+export const occasionMusic: Record<string, MusicId> = {
+  roka: "bhairavi-shehnai",
+  engagement: "pilu-sarangi",
+  haldi: "dholak-boliyan",
+  mehendi: "ghoomar-mand",
+  sangeet: "dhol-bhangra",
+  cocktail: "qawwali-taali",
+  wedding: "phera-shankh",
+  reception: "bageshri-bansuri",
 };
 
 export function musicLabel(id: MusicId | null | undefined) {
@@ -174,7 +234,8 @@ export const packMusic: Record<string, MusicId> = {
 };
 
 export function worldForKind(kind: string): WorldId | null {
-  if (kind === "haldi" || kind === "mehendi" || kind === "sangeet" || kind === "wedding" || kind === "reception") return kind;
+  if (kind === "haldi" || kind === "mehendi" || kind === "sangeet" || kind === "reception") return kind;
+  if (kind === "wedding") return "pheras";
   if (kind === "roka" || kind === "engagement") return "engagement";
   if (kind === "cocktail") return "sangeet";
   return null;
@@ -200,10 +261,16 @@ function isMusic(value: unknown): value is MusicId {
 /** Pack, then the function's own world, then the Admin's override for that function. */
 export function resolveTheme(packId: string | null | undefined, kind: string, override?: ThemeOverride): ResolvedTheme {
   const pack = themePack(packId);
-  const worldId = isWorld(override?.world) ? override.world : worldForKind(kind) ?? "wedding";
-  const world = worlds[worldId];
   const fromKind = worldForKind(kind);
-  const musicId = isMusic(override?.music) ? override.music : fromKind ? world.music : packMusic[pack.id] ?? "none";
+  const worldId = isWorld(override?.world) ? override.world : fromKind ?? "pheras";
+  const world = worlds[worldId];
+  // An Admin's choice first; then, if they moved the function to another world, that world's music;
+  // then the best piece for the occasion; a custom function plays the wedding pack's music.
+  const musicId = isMusic(override?.music)
+    ? override.music
+    : isWorld(override?.world) && override.world !== fromKind
+      ? world.music
+      : occasionMusic[kind] ?? packMusic[pack.id] ?? "bhairavi-shehnai";
   const accent = override?.accent && /^#[0-9a-f]{6}$/i.test(override.accent) ? override.accent : world.accent;
   return { pack, world, music: musicId, accent };
 }

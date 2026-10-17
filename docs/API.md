@@ -1,9 +1,9 @@
 # The Wedding Home — API design
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.1  
+**Version:** 1.2  
 **Status:** Ready for slice 1  
-**Date:** 4 Oct 2026 (1.0 written 30 Sep 2026)  
+**Date:** 18 Oct 2026 (1.2 records OpenStreetMap search, venue coordinates, and the v1.5 gallery routes; 1.1 was 4 Oct 2026)  
 **Audience:** Anyone writing a route handler, a Zod schema, or a client call
 
 **1.1** closes the gap pass against the Make My Marriage API reference. Product rules did not move. What changed is the contract a handler can implement without inventing behaviour: which slice owns which route, session checks, upload and delete races, RSVP capacity races, email-send failure, opaque gallery cursors, and the open items in §15 that are now decisions.
@@ -36,7 +36,7 @@ Every route handler does the five steps of architecture §7: parse, authenticate
 | Civil dates | `YYYY-MM-DD` (`weddingDate`, `dueOn`, `spentOn`), meaning that day in India |
 | Money | Integer rupees: `amountInr`, `agreedCostInr`, `totalInr`. Formatting with `₹` and lakh grouping is the client's job |
 | Phones | Sent and returned as E.164. The server normalises `98765 43210` to `+919876543210` when the country is unambiguous, otherwise rejects with `INVALID_PHONE` |
-| Places | `{ name?, address, city, lat, lng, googlePlaceId? }`. Responses add `mapsUrl` (see §7.5). GeoJSON never leaves the server |
+| Places | `{ name?, address?, city? }` in requests. Responses add `lat` and `lng` when the venue was found on OpenStreetMap, `mapsUrl`, and `embedUrl` (see §7.5). GeoJSON never leaves the server |
 | Media | Requests reference an upload by `uploadId` (§9). Responses give `{ url, contentType, expiresAt }` with a short-lived signed URL. Storage keys are never returned |
 | Booleans, enums | As in DATABASE §2 and §5. `silent` is a derived RSVP status that responses may carry and requests may not |
 | `null` | In a `PATCH`, `null` clears an optional field. A field left out is left alone |
@@ -78,11 +78,11 @@ Last write wins. `PATCH` changes only the named fields, so two organisers editin
 | `site.slug` | `SLUG_TAKEN` |
 | `events` primary | retry the primary-move transaction |
 | `rsvps (householdId, eventId)` | the upsert replaces the row; this is success |
-| `vendors.place.googlePlaceId` | `ALREADY_SAVED` |
+| `vendors.place.id` | `ALREADY_SAVED` |
 | `gallery_items.storageKey`, `email_jobs.dedupeKey` | return the row that already won |
 
 6. **Logs** on each request: `requestId`, method, route template (with ids redacted), status, `userId`, `weddingId`, duration, `code`. Never log passwords, cookies, reset tokens, member-invite tokens, household invite tokens, gallery tokens, `waUrl`, signed URLs, or raw provider bodies.
-7. **Provider failures** (Resend, S3, Places) become `503` `INTERNAL_ERROR` reason `DEPENDENCY_UNAVAILABLE`, or `DISCOVERY_UNAVAILABLE` for Places search. The response text is ours.
+7. **Provider failures** (Resend, the file store, OpenStreetMap) become `503` `INTERNAL_ERROR` reason `DEPENDENCY_UNAVAILABLE`, or `DISCOVERY_UNAVAILABLE` for vendor search. The response text is ours.
 
 `201` responses include a `Location` header with the new resource path.
 
@@ -174,7 +174,7 @@ Some conflicts add `details`, an object with the keys named in that reason's row
 | `NOT_FOUND` | 404 | Unknown, deleted, or another wedding's. Also a bad guest token |
 | `CONFLICT` | 409 | The request is fine, the current state refuses it |
 | `RATE_LIMITED` | 429 | With `Retry-After` seconds |
-| `INTERNAL_ERROR` | 500 | Anything unexpected. Also `503` reason `DEPENDENCY_UNAVAILABLE` for Places or Resend outages |
+| `INTERNAL_ERROR` | 500 | Anything unexpected. Also `503` reason `DEPENDENCY_UNAVAILABLE` for Resend or file store outages |
 
 ### Reasons
 
@@ -211,7 +211,7 @@ Some conflicts add `details`, an object with the keys named in that reason's row
 | `RSVP_OVER_MAX` | 400 | Attending count above the household maximum |
 | `EVENT_NOT_INVITED` | 400 | RSVP for a function the household was not invited to |
 | `INVALID_PHONE`, `LIVE_URL_UNSUPPORTED`, `FILE_TYPE_NOT_ALLOWED`, `FILE_TOO_LARGE`, `BAD_SLUG` | 400 | Field-specific rules |
-| `DISCOVERY_UNAVAILABLE` | 503 | Places is down. Saved vendors still work |
+| `DISCOVERY_UNAVAILABLE` | 503 | OpenStreetMap search did not answer. Saved vendors still work |
 
 ### Things that must not leak
 
@@ -412,7 +412,7 @@ Joining requires the signed-in user's email to equal the invited email. Someone 
   "endsAt": "2027-02-12T17:30:00.000Z",
   "isPrimary": false,
   "venue": { "name": "Lakeview Lawns", "address": "Rajpur Road", "city": "Dehradun",
-             "lat": 30.3752, "lng": 78.0664, "googlePlaceId": "ChIJ…" },
+             "lat": 30.3752, "lng": 78.0664 },
   "description": "An evening of songs and dance by both families.",
   "dressNote": "Jewel tones. Heels sink into the lawn.",
   "howToReach": "Gate 2 from Rajpur Road.",
@@ -421,7 +421,7 @@ Joining requires the signed-in user's email to equal the invited email. Someone 
 }
 ```
 
-Responses turn `venue` into `{ …, "mapsUrl": "https://www.google.com/maps/search/?api=1&query=30.3752,78.0664&query_place_id=ChIJ…" }`, the documented Google Maps URL format. Opening it needs no key. `venue` is `null`, and there is no map, when it was never set. A venue always needs `lat` and `lng`; the client obtains them from place autocomplete with the browser Maps key (architecture §14).
+v1.5: requests send `venue: { name?, address?, city? }`; `lat` and `lng` in a request are ignored. On save the server looks the venue up on OpenStreetMap's Nominatim and stores the coordinates when it finds them. Responses turn `venue` into `{ name, address, city, lat, lng, "mapsUrl": "https://www.google.com/maps/search/?api=1&query=…", "embedUrl": "https://maps.google.com/maps?q=…&output=embed" }`, built from the name, address, and city. Opening either needs no key. `venue` is `null` when it was never set, and there is no map when it has neither a name nor an address (architecture §14).
 
 The theme override is not on this resource. It is Admin-only and lives at `PUT /api/website/events/{eventId}/theme` (§7.11), so a Manager editing an event cannot touch it.
 
@@ -560,13 +560,13 @@ Setting `status` to `done` sets `completedAt` to now. Any other status clears `c
 | Endpoint | Who | Body / query | Success | Errors |
 |---|---|---|---|---|
 | `GET /api/vendors` | S | `page, limit, category, eventId, q` | `200` paged | |
-| `POST /api/vendors` | S | `{ name, category, contactPerson?, phone?, email?, address?, website?, agreedCostInr?, eventIds?, notes?, place?: { googlePlaceId, lat, lng } }` | `201` vendor | `ALREADY_SAVED`, `LIMIT_REACHED` |
+| `POST /api/vendors` | S | `{ name, category, contactPerson?, phone?, email?, address?, website?, agreedCostInr?, eventIds?, notes? }`, or from search `{ place: { id }, category, eventIds? }` | `201` vendor | `ALREADY_SAVED`, `LIMIT_REACHED` |
 | `GET /api/vendors/{id}` | S | — | `200` vendor | |
 | `PATCH /api/vendors/{id}` | S | Any field | `200` vendor | |
 | `DELETE /api/vendors/{id}` | S | — | `204`. Its expenses keep the name in `vendorLabel` | |
-| `GET /api/vendors/search` | S | `eventId` (venue coordinates are the centre), `category`, `radiusM` (default 5000, max 30000), `q?` | `200` `{ places: [{ googlePlaceId, name, rating, ratingCount, address, lat, lng, distanceM, phone?, website?, mapsUrl, savedVendorId? }] }` | `DISCOVERY_UNAVAILABLE` 503 |
+| `GET /api/vendors/search` | S | `eventId?` (its venue is the centre; else the wedding city), `category`, `q?` | `200` `{ near, centre: { lat, lng }, attribution, places: [{ placeId, name, address, lat, lng, distanceM, phone, website, mapsUrl, osmUrl, savedVendorId }] }` | `PLACE_NOT_FOUND` 400, `DISCOVERY_UNAVAILABLE` 503 |
 
-Search calls Places from the server with a field mask that asks only for these fields (cost control) and never returns the API key. `savedVendorId` is filled when a result is already in My vendors. The event must have a venue with coordinates, or the search is `VALIDATION_ERROR` on `eventId`. The guest function map has nothing to do with this route. Saving from search sends `place.googlePlaceId` plus the coordinates; the server refetches the place and copies the fields it is willing to store. The client does not get to invent the name that lands on the row.
+v1.5: search runs on OpenStreetMap from the server (architecture §14): Photon name searches and Nominatim category searches in a box around the centre, about 8 km from a venue or 12 km from a city, widened once when there are fewer than four results, nearest first, at most 24. OSM has no ratings. `attribution` must be shown with the results. `savedVendorId` is filled when a result is already in My vendors. The guest function map has nothing to do with this route. Saving from search sends only `place.id` (an OSM element such as `node/123`); the server reads it back through Nominatim and copies the name, address, phone, and website. The client does not get to invent the name that lands on the row.
 
 ```json
 {
@@ -628,6 +628,8 @@ All routes here are `A`.
 - **Who may edit this resource:** Admin only, including helplines, stay, families, Aashirwad, and the Live URL. Those fields are the public site. A Manager updates them by asking an Admin. Preview remains available to both roles.
 
 ### 7.12 Photos and videos (slice 7, organiser side)
+
+**v1.5, as built.** `GET /api/gallery` returns `{ enabled, guestUploadEnabled, directUpload, uploadPrefix, url, albums: [{ eventId, title, total }], items: [{ id, title, kind, url, eventId, hidden, uploadedBy, createdAt }] }` with up to 2,000 items in one response. `PATCH /api/gallery` takes `{ enabled?, guestUploadEnabled? }`. `PATCH /api/gallery/items/{id}` takes `{ hidden?, eventId? }`. `GET /api/gallery/items/{id}/file?download=1` downloads (a Blob file redirects to its URL). `GET /api/gallery/qr?format=png|svg` is the QR. Uploads are §9's v1.5 note. The table below is the S3 design.
 
 | Endpoint | Who | Body / query | Success |
 |---|---|---|---|
@@ -757,6 +759,8 @@ Guests cannot hide, delete, or download in bulk. A guest never sees another uplo
 ---
 
 ## 9. Uploads
+
+**v1.5, as built (architecture §12).** With Vercel Blob connected: `POST /api/gallery/upload` (organiser) or `/api/public/gallery/{token}/upload` (guest) issues a Blob client token scoped to the wedding's gallery prefix, with `clientPayload: { contentType, eventId? }`; the browser uploads straight to Blob; then `POST /api/gallery/register` (or the guest `/register`) with `{ url, pathname, eventId? }` records it, checking the first bytes and the length. Blob's completion webhook may record it first; the row is created once. Without Blob, `POST /api/gallery` (or `/api/public/gallery/{token}`) takes `multipart/form-data` with `file` and optional `eventId`, under 4 MB. Allowed: JPEG, PNG, WebP, MP4, QuickTime; photos 15 MB and videos 100 MB through Blob. The rest of this section is the S3 protocol for later.
 
 One protocol for every file (architecture §12). Bytes go from the browser straight to S3, never through Vercel.
 
@@ -946,4 +950,4 @@ These add to architecture §23.
 
 1. **Large videos on phones.** A 100 MB video in one `PUT` restarts from zero if the network drops. Decide on S3 multipart before slice 7, with a spike. The single-PUT protocol above is the v1 default until that spike says otherwise.
 2. **Vercel plan.** Hourly and 5-minute crons need Pro (§10), or an external scheduler calling the same routes.
-3. **Places storage terms** before slice 6. Until that check, a saved vendor stores `googlePlaceId` and the fields the organiser confirms. See DATABASE §12.
+3. **Map data terms.** Resolved 18 Oct 2026: vendor search uses OpenStreetMap, whose ODbL allows the copy with attribution. See DATABASE §12.

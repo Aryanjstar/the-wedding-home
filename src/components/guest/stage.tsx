@@ -35,7 +35,7 @@ export function Motif({ motif, className = "g-motif" }: { motif: MotifId; classN
     return (
       <svg className={className} viewBox="0 0 1200 320" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         {Array.from({ length: 22 }, (_, index) => (
-          <circle key={index} cx={560 + index * 26} cy={210 - Math.sin(index / 2) * 70} r={index % 3 === 0 ? 8 : 4.5} />
+          <circle key={index} cx={560 + index * 26} cy={Math.round(210 - Math.sin(index / 2) * 70)} r={index % 3 === 0 ? 8 : 4.5} />
         ))}
         <path d="M480 270 Q660 40 960 80 Q1120 110 1180 250" />
         <path d="M760 270 L840 90 L930 270" />
@@ -55,16 +55,35 @@ export function Motif({ motif, className = "g-motif" }: { motif: MotifId; classN
       </svg>
     );
   }
+  if (motif === "mandap") {
+    return (
+      <svg className={className} viewBox="0 0 1200 340" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <path d="M640 330 V120 M1100 330 V120 M600 120 H1140 M620 120 Q870 -10 1120 120" />
+        <path d="M680 330 V140 M1060 330 V140" />
+        {Array.from({ length: 11 }, (_, index) => (
+          <path key={index} d={`M${650 + index * 44} 120 v${18 + (index % 2) * 12}`} />
+        ))}
+        {Array.from({ length: 11 }, (_, index) => (
+          <circle key={`m${index}`} cx={650 + index * 44} cy={142 + (index % 2) * 12} r="6" />
+        ))}
+        <path d="M800 330 h140 v-28 h-140 z M820 302 v-18 h100 v18" />
+        <path d="M870 284 q-22 -30 0 -62 q8 22 18 10 q12 26 -6 52 z" />
+        <path d="M858 284 q-10 -18 4 -34" />
+        {Array.from({ length: 22 }, (_, index) => <circle key={`s${index}`} cx={60 + (index * 113) % 480} cy={30 + (index * 61) % 240} r="1.8" />)}
+        <path d="M120 250 q40 -40 80 0 q-40 26 -80 0z M160 230 v-30" />
+      </svg>
+    );
+  }
   if (motif === "toran") {
     return (
       <svg className={className} viewBox="0 0 1200 320" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
         <path d="M0 40 Q600 120 1200 40" />
         {Array.from({ length: 24 }, (_, index) => {
           const x = 25 + index * 50;
-          const y = 40 + Math.sin((index / 23) * Math.PI) * 38;
+          const y = Math.round(40 + Math.sin((index / 23) * Math.PI) * 38);
           return <path key={index} d={`M${x} ${y} q-12 30 0 58 q12 -28 0 -58z`} />;
         })}
-        {Array.from({ length: 12 }, (_, index) => <circle key={`m${index}`} cx={50 + index * 100} cy={48 + Math.sin((index / 11) * Math.PI) * 38} r="9" />)}
+        {Array.from({ length: 12 }, (_, index) => <circle key={`m${index}`} cx={50 + index * 100} cy={Math.round(48 + Math.sin((index / 11) * Math.PI) * 38)} r="9" />)}
         <path d="M820 290 V200 Q900 140 980 200 V290" />
         <path d="M860 210 Q900 180 940 210" />
       </svg>
