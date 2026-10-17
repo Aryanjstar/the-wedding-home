@@ -159,14 +159,16 @@ The earlier screens saved some things and then crashed (`event.currentTarget` re
 - `npm run typecheck`, `npm run lint`, and `next build` pass.
 - `npm run e2e` (Playwright, `tests/e2e/journey.spec.ts`, against the Atlas dev database): 15 steps pass as an Admin, a Manager, a second family, and a guest on a phone — plan a wedding, four functions with maps and a muhurat, households with WhatsApp links and the e-card, a real invitation email, a guest RSVP per function that refuses a diet that does not add up and more people than allowed, caterer totals, a real send-now reminder through Resend, delete confirmation, tasks, vendors and expenses in rupees, photo upload with albums, hide, QR, guest upload and closing the gallery, pack and per-function music, publish and unpublish, the public site with sound carried across function pages, the preview invitation, a Manager joining by invitation with the right pages and 403 on Admin APIs, promoting and demoting, the last Admin, another wedding getting 404 on this one, one wedding per account, password change with the eye, a wrong password, reset request, and no horizontal overflow at 390 px.
 - Scheduled reminders run at a pretend time one week before a Sangeet: 6 planned and 6 delivered by Resend; a second run planned 0.
+- The same journey passes against production, https://the-wedding-home.vercel.app, on 2026-10-18. Running it there first found two real bugs that the dev machine hid: a household saved before the functions loaded was invited to nothing, and photos sent straight to Vercel Blob lost their album. Both are fixed. The production run leaves a demo wedding (Meera & Arun, Udaipur, published at `/w/meera-arun-14022027-2`) and a second family's wedding (Kochi). Three earlier, interrupted runs left partial demo weddings under the `+admin-live`, `+admin-demo`, and `+admin-home` plus-addresses.
 
 ### Boundaries and deviations
 
-- **Nearby search:** Google answers "API key not valid" for the `GOOGLE_PLACES_API_KEY` in `.env.local`. The page then says discovery is unavailable and offers Open in Google Maps. Set a key with Places API (New) enabled, locally and on Vercel.
+- **Nearby search:** Google answers "API key not valid" for the `GOOGLE_PLACES_API_KEY` in `.env.local`, and search is unavailable on production too. The page then says discovery is unavailable and offers Open in Google Maps. Set a key with Places API (New) enabled, locally and on Vercel.
 - **Maps:** the venue map is the keyless Google Maps embed from the venue, address, and city. API.md asks for latitude and longitude from place autocomplete; that waits for a browser Maps key.
 - **Files:** still Vercel Blob (when `BLOB_READ_WRITE_TOKEN` is set) or MongoDB under 4 MB, not S3 with upload intents. The gallery list is one response of up to 2,000 items, not the cursor list in API §7.12, and download goes through the file route rather than a signed URL.
 - **Reminder queue response** returns `silent` and `yes` lists instead of one paged `items` list.
 - **Cron** is daily (Vercel Hobby). The 36-hour window covers it.
+- A second Vercel project named `frontend` is connected to this repository and has failed on every commit since before this change. The live site is the `the-wedding-home` project, which deploys.
 - The designed `/w/aanya-and-kabir` sample keeps its own pages; its function pages now use the new music engine. Seeded dev organisers still sign in with the preview password.
 
 ## Upcoming development
