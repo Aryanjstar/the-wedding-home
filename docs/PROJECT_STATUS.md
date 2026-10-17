@@ -14,7 +14,7 @@ The public site opens on **Plan the wedding**. The first screen asks for the bri
 | Public homepage and screen preview | Complete — UI with sample data | 2026-10-14 |
 | Family data in MongoDB | Complete — Atlas `wedding-home-dev` | 2026-10-14 |
 | Family workspace, gallery trial, published theme | Complete — checked locally | 2026-10-17 |
-| Vercel deployment | Blocked — CLI and browser are logged out | 2026-10-17 |
+| Vercel deployment | Live — the-wedding-home.vercel.app redeploys from main | 2026-10-17 |
 
 ## 1. Application scaffold
 

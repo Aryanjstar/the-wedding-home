@@ -54,7 +54,7 @@ export function HomePage({ days }: { days: number }) {
           <div>
             <p className="eyebrow"><i /> Jaipur · 18 December 2026</p>
             <h1>Every function, in one shared home.</h1>
-            <p className="lede">Guests open a link. No account.</p>
+            <p className="lede">The family plans the week together. Guests open one link, reply, and share photographs. No account.</p>
             <div className="actions">
               <Link className="btn" href={startHref}>{startLabel}</Link>
               <Link className="btn-text" href="/invite">See a guest invite →</Link>
@@ -122,7 +122,7 @@ export function HomePage({ days }: { days: number }) {
                 <Link className="btn" href={`/w/aanya-and-kabir/${fn.id}`}>Open {fn.title}</Link>
               </div>
             </article>
-            <aside className="glass family-card" id="family">
+            <aside className="glass family-card">
               <p className="kicker">Family app</p>
               <h3 className="serif">The same wedding, for everyone organising.</h3>
               <div className="ops">
@@ -162,6 +162,32 @@ export function HomePage({ days }: { days: number }) {
           </div>
         </section>
 
+        <section className="wrap section" id="family">
+          <div className="section-head">
+            <div>
+              <p className="kicker">The family app</p>
+              <h2 className="serif">One wedding. Two roles. No guest accounts.</h2>
+            </div>
+            <p className="muted">Admins invite the family. Managers plan with them. Guests never sign up.</p>
+          </div>
+          <div className="specs" style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+            {[
+              ["Events", "Each function has a venue. Open it in Google Maps."],
+              ["Guests", "One link per household, on WhatsApp or by email."],
+              ["RSVP", "How many are coming, with veg, non-veg, and Jain."],
+              ["Tasks", "Shared work. All, mine, or done."],
+              ["Spend", "A log in rupees. Not a budget."],
+              ["Gallery", "Photographs and videos in one private link."],
+            ].map(([title, line]) => (
+              <article key={title} className="spec">
+                <span className="icon-blob" aria-hidden="true">{title.slice(0, 1)}</span>
+                <strong>{title}</strong>
+                <p>{line}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
         <section className="wrap section" id="guests">
           <div className="section-head">
             <p className="kicker">What a guest can do</p>
@@ -190,6 +216,7 @@ export function HomePage({ days }: { days: number }) {
           </div>
           <div className="rule" />
           <p>The operating system for Indian marriages.</p>
+          <p className="fine"><a href="mailto:onboarding@aryanjaiswal.in">onboarding@aryanjaiswal.in</a></p>
         </section>
       </main>
       <footer className="site-footer">

@@ -12,7 +12,7 @@ const yatra = Yatra_One({ subsets: ["latin", "devanagari"], weight: "400", varia
 
 export const metadata: Metadata = {
   title: "The Wedding Home",
-  description: "Every function, in one shared home. The operating system for Indian marriages.",
+  description: "The operating system for Indian marriages. The family shares events, guests, tasks, and a guest website. Guests open a link. No account.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
