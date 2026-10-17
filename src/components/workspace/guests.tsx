@@ -91,7 +91,7 @@ export function GuestsPage() {
       ) : null}
       <Drawer open={editing !== null} onClose={() => setEditing(null)} title={editing && editing !== "new" ? `Edit ${editing.name}` : "Add a household"}>
         {editing !== null ? (
-          <HouseholdForm key={editing === "new" ? "new" : editing.id} household={editing === "new" ? null : editing} events={eventList} onDone={() => setEditing(null)} />
+          <HouseholdForm key={editing === "new" ? "new" : editing.id} household={editing === "new" ? null : editing} events={eventList} ready={Boolean(events.data)} onDone={() => setEditing(null)} />
         ) : null}
       </Drawer>
     </>
@@ -215,7 +215,7 @@ function HouseholdList({ items, events, onEdit, onAdd }: { items: Household[]; e
   );
 }
 
-function HouseholdForm({ household, events, onDone }: { household: Household | null; events: EventItem[]; onDone: () => void }) {
+function HouseholdForm({ household, events, ready, onDone }: { household: Household | null; events: EventItem[]; ready: boolean; onDone: () => void }) {
   const { toast, confirm } = useFeedback();
   const [side, setSide] = useState<Household["side"]>(household?.side ?? "bride");
   // Until someone changes it, a new household is invited to every function, even ones still loading.
@@ -243,6 +243,8 @@ function HouseholdForm({ household, events, onDone }: { household: Household | n
     const data = new FormData(formEvent.currentTarget);
     const text = (name: string) => String(data.get(name) ?? "").trim();
     if (!text("name")) return setError("Give the household a name.");
+    // Never save before the functions arrive, or a new household would be invited to nothing.
+    if (!ready) return setError("The functions are still loading. Try again in a moment.");
     const body = { name: text("name"), side, maxPeople: max, invitedEventIds: invited, email: text("email"), phone: text("phone"), notes: text("notes") };
     setBusy(true);
     setError(null);
@@ -303,7 +305,7 @@ function HouseholdForm({ household, events, onDone }: { household: Household | n
       <div className="ui-span-2 ui-drawer-foot" style={{ margin: "0.5rem -1.4rem -1.4rem", position: "sticky", bottom: "-1.4rem" }}>
         {household ? <Button tone="danger" icon="trash" onClick={() => void remove()}>Remove</Button> : null}
         <Button tone="secondary" onClick={onDone}>Cancel</Button>
-        <Button type="submit" busy={busy}>{household ? "Save changes" : "Add household"}</Button>
+        <Button type="submit" busy={busy || !ready}>{household ? "Save changes" : "Add household"}</Button>
       </div>
     </form>
   );
