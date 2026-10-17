@@ -9,6 +9,7 @@ import type {
   InvitationDoc,
   MembershipDoc,
   PasswordResetDoc,
+  MediaDoc,
   RateLimitDoc,
   RsvpDoc,
   SessionDoc,
@@ -92,6 +93,7 @@ const weddingSchema = plainSchema(
       published: { type: Boolean, default: false },
       publishedAt: Date,
       theme: { packId: { type: String, default: "classical" } },
+      liveUrl: String,
     },
     gallery: {
       token: { type: String, required: true },
@@ -297,6 +299,18 @@ const gallerySchema = plainSchema(
 gallerySchema.index({ storageKey: 1 }, { unique: true });
 gallerySchema.index({ weddingId: 1, hidden: 1, _id: -1 });
 
+const mediaSchema = plainSchema(
+  {
+    storageKey: { type: String, required: true },
+    contentType: { type: String, required: true },
+    bytes: { type: Number, required: true },
+    data: { type: Buffer, required: true },
+    schemaVersion: { type: Number, required: true, default: 1 },
+  },
+  options,
+);
+mediaSchema.index({ storageKey: 1 }, { unique: true });
+
 const rateLimitSchema = plainSchema(
   {
     _id: { type: String, required: true },
@@ -320,6 +334,7 @@ export const TaskModel = model<TaskDoc>("Task", "tasks", taskSchema);
 export const ExpenseModel = model<ExpenseDoc>("Expense", "expenses", expenseSchema);
 export const VendorModel = model<VendorDoc>("Vendor", "vendors", vendorSchema);
 export const GalleryModel = model<GalleryDoc>("GalleryItem", "gallery_items", gallerySchema);
+export const MediaModel = model<MediaDoc>("MediaObject", "media_objects", mediaSchema);
 export const RateLimitModel = model<RateLimitDoc>("RateLimit", "rate_limits", rateLimitSchema);
 
 export const collectionModels = [
@@ -336,5 +351,6 @@ export const collectionModels = [
   ExpenseModel,
   VendorModel,
   GalleryModel,
+  MediaModel,
   RateLimitModel,
 ] as unknown as Model<unknown>[];

@@ -3,10 +3,11 @@ import "server-only";
 import mongoose from "mongoose";
 import { z } from "zod";
 
+import { publicAppUrl } from "@/config/env";
 import { daysUntilCivilDate } from "@/data/india-time";
 import { passwordProblem } from "@/data/password-rules";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
-import { randomToken, sha256Hex } from "@/server/auth/session";
+import { randomToken, tokenHash, tokenHashQuery } from "@/server/auth/session";
 import { connectToDatabase } from "@/server/db/connection";
 import { EmailDeliveryError, sendHouseholdInvitation, sendMemberInvitation, sendPasswordReset } from "@/server/email/service";
 import {
@@ -50,7 +51,7 @@ export async function currentUser(request: Request) {
   await db();
   const token = sessionTokenFrom(request);
   if (!token) return null;
-  const session = await SessionModel.findOne({ tokenHash: sha256Hex(token), expiresAt: { $gt: new Date() } });
+  const session = await SessionModel.findOne({ tokenHash: { $in: tokenHashQuery(token) }, expiresAt: { $gt: new Date() } });
   if (!session) return null;
   const user = await UserModel.findById(session.userId);
   if (!user) return null;
@@ -67,14 +68,14 @@ async function membershipFor(userId: mongoose.Types.ObjectId) {
   return MembershipModel.findOne({ userId });
 }
 
-async function requireMember(request: Request) {
+export async function requireMember(request: Request) {
   const user = await requireUser(request);
   const membership = await membershipFor(user._id);
   if (!membership) throw new ServiceError(403, "FORBIDDEN", "NO_WEDDING", "Create the wedding first.");
   return { user, membership };
 }
 
-async function requireAdmin(request: Request) {
+export async function requireAdmin(request: Request) {
   const context = await requireMember(request);
   if (context.membership.role !== "admin") {
     throw new ServiceError(403, "FORBIDDEN", "NOT_ADMIN", "Only an Admin can do that.");
@@ -105,7 +106,7 @@ async function openSession(userId: mongoose.Types.ObjectId) {
   const token = randomToken();
   const now = new Date();
   await SessionModel.create({
-    tokenHash: sha256Hex(token),
+    tokenHash: tokenHash(token),
     userId,
     createdAt: now,
     expiresAt: new Date(now.getTime() + 30 * DAY),
@@ -193,7 +194,7 @@ export async function logIn(request: Request, body: unknown) {
 export async function logOut(request: Request) {
   await db();
   const token = sessionTokenFrom(request);
-  if (token) await SessionModel.deleteOne({ tokenHash: sha256Hex(token) });
+  if (token) await SessionModel.deleteOne({ tokenHash: { $in: tokenHashQuery(token) } });
 }
 
 const forgotSchema = z.object({
@@ -209,16 +210,16 @@ export async function forgotPassword(request: Request, body: unknown) {
   if (!user) return;
 
   const token = randomToken();
-  const tokenHash = sha256Hex(token);
+  const resetHash = tokenHash(token);
   await PasswordResetModel.deleteMany({ userId: user._id, usedAt: null });
   await PasswordResetModel.create({
-    tokenHash,
+    tokenHash: resetHash,
     userId: user._id,
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     schemaVersion: 1,
   });
   try {
-    await sendPasswordReset({ to: user.email, token, idempotencyKey: `password-reset/${tokenHash}` });
+    await sendPasswordReset({ to: user.email, token, idempotencyKey: `password-reset/${resetHash}` });
   } catch (error) {
     if (!(error instanceof EmailDeliveryError)) throw error;
     console.error(JSON.stringify({ operation: "forgot-password", userId: idOf(user._id), code: "RESEND_FAILED" }));
@@ -237,7 +238,7 @@ export async function resetPassword(request: Request, body: unknown) {
   if (weak) throw new ServiceError(400, "VALIDATION_ERROR", "WEAK_PASSWORD", weak);
   await consumeRateLimit("reset", clientIp(request), 10, 15 * 60 * 1000);
   const spent = await PasswordResetModel.findOneAndUpdate(
-    { tokenHash: sha256Hex(input.token), usedAt: null, expiresAt: { $gt: new Date() } },
+    { tokenHash: { $in: tokenHashQuery(input.token) }, usedAt: null, expiresAt: { $gt: new Date() } },
     { usedAt: new Date() },
   );
   if (!spent) {
@@ -339,6 +340,12 @@ export async function readWedding(request: Request) {
     city: wedding.city,
     cover: null,
     updatedAt: wedding.updatedAt,
+    site: {
+      slug: wedding.site?.slug ?? null,
+      published: Boolean(wedding.site?.published),
+      packId: wedding.site?.theme?.packId ?? "classical",
+      liveUrl: wedding.site?.liveUrl ?? null,
+    },
   };
 }
 
@@ -520,7 +527,7 @@ export async function inviteMember(request: Request, body: unknown) {
     weddingId: membership.weddingId,
     email: input.email,
     role: input.role,
-    tokenHash: sha256Hex(token),
+    tokenHash: tokenHash(token),
     status: "pending",
     invitedBy: user._id,
     expiresAt,
@@ -564,7 +571,7 @@ export async function resendMemberInvitation(request: Request, invitationId: str
   const invite = await pendingInvitation(membership.weddingId, invitationId);
   const token = randomToken();
   const expiresAt = new Date(Date.now() + 7 * DAY);
-  invite.tokenHash = sha256Hex(token);
+  invite.tokenHash = tokenHash(token);
   invite.expiresAt = expiresAt;
   await invite.save();
   const wedding = await WeddingModel.findById(membership.weddingId);
@@ -615,7 +622,7 @@ export async function readMemberInvite(token: string) {
   if (!token || token.length < 20) {
     throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That invitation was not found.");
   }
-  const invite = await InvitationModel.findOne({ tokenHash: sha256Hex(token) });
+  const invite = await InvitationModel.findOne({ tokenHash: { $in: tokenHashQuery(token) } });
   invitationProblem(invite);
   const wedding = invite ? await WeddingModel.findById(invite.weddingId) : null;
   if (!invite || !wedding) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That invitation was not found.");
@@ -631,7 +638,7 @@ const joinSchema = z.object({ token: z.string().trim().min(20).max(200) }).stric
 export async function joinWedding(request: Request, body: unknown) {
   const user = await requireUser(request);
   const input = joinSchema.parse(body);
-  const invite = await InvitationModel.findOne({ tokenHash: sha256Hex(input.token) });
+  const invite = await InvitationModel.findOne({ tokenHash: { $in: tokenHashQuery(input.token) } });
   invitationProblem(invite);
   if (!invite) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That invitation was not found.");
   if (user.email !== invite.email) {
@@ -753,6 +760,7 @@ export async function dashboard(request: Request) {
       tasksDone: tasks.filter((task) => task.status === "done").length,
       tasksTotal: tasks.length,
       households,
+      replies: (await RsvpModel.distinct("householdId", { weddingId: wedding._id, status: "yes" })).length,
       expensesTotalInr: expenses.reduce((sum, item) => sum + item.amountInr, 0),
       vendors,
     },
@@ -828,8 +836,7 @@ export async function shareHousehold(request: Request, householdId: string) {
   const row = await HouseholdModel.findOne({ _id: householdId, weddingId: membership.weddingId });
   if (!row) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That household was not found.");
   const wedding = await WeddingModel.findById(membership.weddingId);
-  const { getAppEnv } = await import("@/config/env");
-  const inviteUrl = `${getAppEnv().NEXT_PUBLIC_APP_URL}/i/${row.inviteToken}`;
+  const inviteUrl = `${publicAppUrl()}/i/${row.inviteToken}`;
   const names = wedding ? `${wedding.brideName} & ${wedding.groomName}` : "The family";
   const message = `${names} invite you. Open your link: ${inviteUrl}`;
   return { inviteUrl, message, waUrl: `https://wa.me/?text=${encodeURIComponent(message)}` };
@@ -872,12 +879,21 @@ export async function readPublicInvite(token: string) {
   const wedding = await WeddingModel.findById(row.weddingId);
   if (!wedding) return null;
   const events = await EventModel.find({ _id: { $in: row.invitedEventIds } }).sort({ startsAt: 1 });
+  const replies = await RsvpModel.find({ eventId: { $in: events.map((event) => event._id) }, status: "yes" });
+  const attending = new Map<string, number>();
+  for (const reply of replies) {
+    const key = idOf(reply.eventId);
+    attending.set(key, (attending.get(key) ?? 0) + reply.attendingCount);
+  }
   return {
     household: row.name,
     maxPeople: row.maxPeople,
     couple: `${wedding.brideName} & ${wedding.groomName}`,
     city: wedding.city,
-    events: events.map((event) => presentEvent(event)),
+    events: events.map((event) => ({
+      ...presentEvent(event),
+      attending: attending.get(idOf(event._id)) ?? 0,
+    })),
   };
 }
 
@@ -930,6 +946,7 @@ export async function listTasks(request: Request) {
       status: row.status,
       priority: row.priority,
       assigneeName: row.assigneeId ? names.get(idOf(row.assigneeId)) ?? null : null,
+      mine: row.assigneeId ? idOf(row.assigneeId) === idOf(membership.userId) : false,
       dueOn: row.dueOn ?? null,
     })),
   };
@@ -939,6 +956,7 @@ const taskSchema = z.object({
   title: z.string().trim().min(1).max(140),
   status: z.enum(["todo", "doing", "done"]).optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
+  assignToMe: z.boolean().optional(),
 }).strict();
 
 export async function createTask(request: Request, body: unknown) {
@@ -952,11 +970,33 @@ export async function createTask(request: Request, body: unknown) {
     title: input.title,
     status,
     priority: input.priority ?? "medium",
+    ...(input.assignToMe ? { assigneeId: user._id } : {}),
     completedAt: status === "done" ? new Date() : undefined,
     createdBy: user._id,
     schemaVersion: 1,
   });
   return { id: idOf(row._id), title: row.title, status: row.status, priority: row.priority };
+}
+
+const taskUpdateSchema = z.object({
+  status: z.enum(["todo", "doing", "done"]).optional(),
+  assignToMe: z.boolean().optional(),
+}).strict().refine((value) => value.status !== undefined || value.assignToMe !== undefined, "Choose a status or an assignee.");
+
+export async function updateTask(request: Request, taskId: string, body: unknown) {
+  const { user, membership } = await requireMember(request);
+  if (!objectId.safeParse(taskId).success) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That task was not found.");
+  const input = taskUpdateSchema.parse(body);
+  const row = await TaskModel.findOne({ _id: taskId, weddingId: membership.weddingId });
+  if (!row) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That task was not found.");
+  if (input.status) {
+    row.status = input.status;
+    row.completedAt = input.status === "done" ? row.completedAt ?? new Date() : undefined;
+  }
+  if (input.assignToMe === true) row.assigneeId = user._id;
+  if (input.assignToMe === false) row.assigneeId = undefined;
+  await row.save();
+  return { id: idOf(row._id), status: row.status };
 }
 
 export async function listExpenses(request: Request) {
@@ -1039,13 +1079,22 @@ export async function createVendor(request: Request, body: unknown) {
 
 export async function listPhotos(request: Request) {
   const { membership } = await requireMember(request);
-  const rows = await GalleryModel.find({ weddingId: membership.weddingId, hidden: false, publicPath: { $type: "string" } }).sort({ createdAt: 1 });
+  const wedding = await WeddingModel.findById(membership.weddingId);
+  if (!wedding) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That wedding was not found.");
+  const rows = await GalleryModel.find({ weddingId: membership.weddingId, hidden: false }).sort({ createdAt: -1 });
   return {
-    items: rows.map((row) => ({
-      id: idOf(row._id),
-      title: row.title ?? "Photograph",
-      url: row.publicPath,
-    })),
+    enabled: wedding.gallery.enabled !== false,
+    guestUploadEnabled: wedding.gallery.guestUploadEnabled !== false,
+    directUpload: (process.env.BLOB_READ_WRITE_TOKEN ?? "").trim().length > 10,
+    uploadPrefix: `weddings/${idOf(wedding._id)}/gallery`,
+    url: `${publicAppUrl()}/g/${wedding.gallery.token}`,
+    items: rows.flatMap((row) => {
+      const url = row.publicPath?.startsWith("/photos/") || row.publicPath?.startsWith("https://")
+        ? row.publicPath
+        : `/api/gallery/items/${idOf(row._id)}/file`;
+      if (!url) return [];
+      return [{ id: idOf(row._id), title: row.title ?? "Photograph", kind: row.kind, url }];
+    }),
   };
 }
 

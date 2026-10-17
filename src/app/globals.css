@@ -17,6 +17,16 @@
   color-scheme: light;
 }
 
+.guest-theme {
+  background: var(--theme-bg, var(--bone));
+  color: var(--theme-text, var(--ink));
+  min-height: 100%;
+}
+
+.guest-theme .kicker { color: var(--theme-accent, var(--wine)); }
+.guest-theme .muted, .guest-theme .lede { color: var(--theme-muted, var(--muted)); }
+.guest-theme .btn { background: var(--theme-accent, var(--wine)); color: var(--theme-accent-text, white); }
+
 * { box-sizing: border-box; }
 
 html { scroll-behavior: smooth; }

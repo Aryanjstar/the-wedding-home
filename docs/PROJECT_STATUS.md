@@ -1,19 +1,20 @@
 # The Wedding Home — Project Status
 
-**Last updated:** 2026-10-14
+**Last updated:** 2026-10-17
 
 This is the progress log. Read it before building, and update it in the same change when a major feature is added or materially changed. Product scope stays in `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md`, and `docs/API.md`. This file does not override them.
 
 ## Current position
 
-The public site opens on **Plan the wedding**. The first screen asks for the bride, the groom, the date, the city, and an optional title and story. The next screen creates the account, and that person is the first Admin of that wedding only. Another email can plan a different wedding in the same Atlas database, `wedding-home-dev`. `aryanjstar3@gmail.com` is an Admin of the Jaipur sample. `aryanjstar4@gmail.com` and `22bcs018@iiitdwd.ac.in` are Managers there. A new password must be 10 to 128 characters and must not be a very common password. Password reset and invitation mail go out through Resend. With no verified domain, mail still leaves only to `aryanjstar3@gmail.com`. Clicking a function opens its own Indian stage: Haldi is bandhani and Bilawal, Mehendi is jaali and Bhimpalasi, Sangeet is ghungroo and Yaman, the wedding is a gopuram and Shankarabharanam, and the reception is chhatris with a tanpura drone. The sound starts silent. Nothing is deployed.
+The public site opens on **Plan the wedding**. The first screen asks for the bride, the groom, the date, the city, and an optional title and story. The next screen creates the account, and that person is the first Admin of that wedding only. Another email can plan a different wedding in the same Atlas database, `wedding-home-dev`. `aryanjstar3@gmail.com` is an Admin of the Jaipur sample. `aryanjstar4@gmail.com` and `22bcs018@iiitdwd.ac.in` are Managers there. A new password must be 10 to 128 characters and must not be a very common password. Password reset and invitation mail go out through Resend as `The Wedding Home <onboarding@aryanjaiswal.in>`. That domain is verified. Session and one-time tokens are HMAC-SHA256 when `AUTH_TOKEN_PEPPER` is set, and older SHA-256 rows still sign in. A real wedding can move tasks, copy a gallery link, upload a small photograph, and publish a themed guest site. The designed Aanya pages stay at `/w/aanya-and-kabir`. The Jaipur sample is also published at `/w/aanya-kabir-jaipur` in the Traditional pack. Production is [https://the-wedding-home.vercel.app](https://the-wedding-home.vercel.app). Vercel’s GitHub connection already redeploys `main`. Photographs and videos upload through the app under 4 MB. When `BLOB_READ_WRITE_TOKEN` is set on the Vercel project, photographs up to 15 MB and videos up to 100 MB upload straight to Vercel Blob.
 
 | Milestone | Status | Recorded on |
 | --- | --- | --- |
 | Application scaffold | Complete — foundation only | 2026-10-06 |
 | Public homepage and screen preview | Complete — UI with sample data | 2026-10-14 |
 | Family data in MongoDB | Complete — Atlas `wedding-home-dev` | 2026-10-14 |
-| Vercel deployment | Not started | — |
+| Family workspace, gallery trial, published theme | Complete — checked locally | 2026-10-17 |
+| Vercel deployment | Blocked — CLI and browser are logged out | 2026-10-17 |
 
 ## 1. Application scaffold
 
@@ -94,11 +95,39 @@ The public site opens on **Plan the wedding**. The first screen asks for the bri
 - Sign-up and password reset reject passwords shorter than 10 characters, longer than 128, or on the common-password list. Sign-in still accepts the seeded preview password. Auth, reset, member invitations, and household emails are rate limited in `rate_limits`.
 - An Admin sees Members and Website. A Manager sees the rest of the wedding and, on a direct Members link, “Admins only.”
 - Plan the wedding starts at `/plan`: couple, date, city, optional title and story, then the account. Checked on 2026-10-14 with separate weddings in Pune, Kochi, and Udaipur. Each account saw only its own wedding. A manager joined the Pune wedding and could not open Members or start a second wedding. The last Admin could not step down.
-- Photographs for a new wedding wait until storage is connected. Aanya’s gallery still uses the photographs already in the site.
+- Photographs for a new wedding can be uploaded. See milestone 4. Aanya’s designed gallery still uses the photographs already in the site.
+
+## 4. Tasks, invites, gallery trial, and a published theme
+
+**Status:** Complete — checked locally. Not deployed.
+
+**Recorded on:** 2026-10-17
+
+### Implemented
+
+- The real-wedding dashboard counts households that have said yes.
+- Tasks can be added, assigned to the signed-in organiser, filtered by All, Mine, and Done, and moved between to do, doing, and done.
+- Household invites and RSVP were already stored. The guest link, WhatsApp share, and diet check stay as they were. A personalised reminder campaign is still later.
+- An Admin can pick Traditional, Classical, Art, or Choreography, set an address, paste a YouTube or Vimeo link, and publish. Guests open `/w/{slug}` with no account. `/w/aanya-and-kabir` stays the designed sample, so a published wedding uses a different address.
+- Photographs for the trial are stored in MongoDB (`media_objects`), not Cloudflare R2 or S3. JPEG, PNG, and WebP only, under 1.5 MB, up to 40 per wedding. Guests use `/g/{token}`. Organisers can turn guest upload off and remove a photograph they uploaded. Video waits until a private file bucket exists. This avoids a payment method. The architecture still names S3 as the later store.
+
+### Validation
+
+- 35 unit tests passed. Typecheck passed. Lint passed.
+- Signed in through the API as the Jaipur Admin: the dashboard reported 1 reply, a task moved to done, a JPEG uploaded and downloaded, and `PATCH /api/wedding/site` published `aanya-kabir-jaipur`. The trial photograph and the extra task were removed afterwards.
+- In the browser, as the Kochi admin, added a task, saw it assigned, opened Photos (upload, guest-upload toggle, copy link), and selected Traditional on Website. Opened `/w/aanya-kabir-jaipur` and saw Jaipur, the five functions, and Open in Google Maps. The Kochi task was removed afterwards.
+- On 2026-10-17 a second pass created Meera Iyer and Arun Kapoor in Udaipur and walked signup, a wrong password, one wedding per account, functions with a Maps link, a household invited only to the wedding, an RSVP that refuses a bad diet and too many people, the attending count, the dashboard, a finished task, a rupee expense, a vendor, gallery upload and the guest-upload switch, publish and unpublish, a Manager invitation, last-Admin protection, and isolation from the Jaipur wedding. Resend delivered the household invite, the organiser invite, and the password reset from `The Wedding Home <onboarding@aryanjaiswal.in>`. The same wedding was then opened in the browser: 399 days, Haldi next, Sharma family “3 yes”, and the Traditional guest site. Reminder campaigns are still later.
+
+### Boundaries
+
+- No Vercel deployment in this step. Production must use the database name `wedding-home`. Local stays on `wedding-home-dev`.
+- Reminder batches and a personalised email form are not built.
+- Nearby vendor search is still a Google Maps link, not Places.
+- Gallery video, albums, and a printed QR image are not in this trial.
 
 ## Upcoming development
 
-Verify a sending domain at Resend before invitations can reach anyone except `aryanjstar3@gmail.com`. Deploy when a Vercel login is available. A map pin from a real place, and a published guest site for a wedding that is not the sample, are still open.
+Add the Resend DNS records for `rnjsworld.in`, then sign in to Vercel and deploy. Production uses the database name `wedding-home` on the same Atlas cluster. A map pin from a real place, reminder mail, and gallery video are still open.
 
 ## Updating this document
 

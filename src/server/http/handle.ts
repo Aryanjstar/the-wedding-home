@@ -33,8 +33,21 @@ export async function readJson(request: Request): Promise<unknown> {
 
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get("origin");
-  const expected = new URL(getAppEnv().NEXT_PUBLIC_APP_URL).origin;
-  if (!origin || origin !== expected) {
+  if (!origin) {
+    throw new ServiceError(403, "FORBIDDEN", "BAD_ORIGIN", "Open this from the wedding site.");
+  }
+  const allowed = new Set<string>();
+  try {
+    allowed.add(new URL(getAppEnv().NEXT_PUBLIC_APP_URL).origin);
+  } catch {
+    // A missing public URL still has to match the host the browser called.
+  }
+  const forwarded = request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+  const host = forwarded.split(",")[0]?.trim() ?? "";
+  const protoHeader = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const proto = protoHeader || (host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https");
+  if (host && !host.includes(" ") && !host.includes("/")) allowed.add(`${proto}://${host}`);
+  if (!allowed.has(origin)) {
     throw new ServiceError(403, "FORBIDDEN", "BAD_ORIGIN", "Open this from the wedding site.");
   }
 }

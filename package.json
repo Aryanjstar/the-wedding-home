@@ -15,6 +15,7 @@
     "db:indexes": "tsx --conditions=react-server scripts/db-indexes.ts"
   },
   "dependencies": {
+    "@vercel/blob": "^2.8.2",
     "bcryptjs": "^3.0.3",
     "mongoose": "^8.24.5",
     "next": "16.3.8",

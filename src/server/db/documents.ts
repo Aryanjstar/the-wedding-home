@@ -48,6 +48,7 @@ export interface WeddingDoc {
     published?: boolean;
     publishedAt?: Date | null;
     theme?: { packId?: string };
+    liveUrl?: string | null;
   };
   gallery: {
     token: string;
@@ -196,6 +197,16 @@ export interface GalleryDoc {
   eventId?: Id | null;
   uploadedBy: { type: "organiser" | "guest"; userId?: Id | null };
   hidden: boolean;
+  schemaVersion: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MediaDoc {
+  storageKey: string;
+  contentType: string;
+  bytes: number;
+  data: Buffer;
   schemaVersion: number;
   createdAt: Date;
   updatedAt: Date;
