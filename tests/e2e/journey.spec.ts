@@ -418,7 +418,7 @@ test.describe.serial("a family plans a wedding end to end", () => {
     await expect(admin.locator(".ws-blessing")).toContainText("Paati");
     const bad = await write(admin.request, new URL(admin.url()).origin, "PATCH", "/api/website", { liveUrl: "https://example.com/stream" });
     expect(bad.status()).toBe(400);
-    await admin.getByRole("button", { name: "Publish" }).click();
+    await admin.getByRole("button", { name: "Publish", exact: true }).click();
     await expect(admin.getByText("The guest site is live.")).toBeVisible();
     const site = await (await admin.request.get("/api/website")).json() as { slug: string };
     state.slug = site.slug;
@@ -447,7 +447,7 @@ test.describe.serial("a family plans a wedding end to end", () => {
     await admin.locator("dialog.ui-confirm").getByRole("button", { name: "Unpublish" }).click();
     await expect(admin.getByText("The site is now a draft.")).toBeVisible();
     expect((await page.goto(`/w/${state.slug}`))?.status()).toBe(404);
-    await admin.getByRole("button", { name: "Publish" }).click();
+    await admin.getByRole("button", { name: "Publish", exact: true }).click();
     await expect(admin.getByText("The guest site is live.")).toBeVisible();
     await context.close();
   });
