@@ -349,7 +349,12 @@ export async function recordBlob(input: {
     throw new ServiceError(400, "VALIDATION_ERROR", "UNSUPPORTED_FILE", "That file did not come from the gallery store.");
   }
   const existing = await GalleryModel.findOne({ storageKey: input.pathname, weddingId: input.weddingId });
-  if (existing) return { id: idOf(existing._id), title: existing.title ?? "Photograph", kind: existing.kind };
+  if (existing) {
+    // The store's webhook and the browser both report a finished upload; whichever knows the album fills it in.
+    const album = existing.eventId ? null : await eventOnWedding(input.weddingId, input.eventId);
+    if (album) await GalleryModel.updateOne({ _id: existing._id }, { $set: { eventId: album } });
+    return { id: idOf(existing._id), title: existing.title ?? "Photograph", kind: existing.kind };
+  }
   const head = await fetch(input.url, { method: "HEAD" });
   if (!head.ok) throw new ServiceError(400, "VALIDATION_ERROR", "UNSUPPORTED_FILE", "That upload did not finish.");
   const bytes = Number(head.headers.get("content-length") ?? "0");
@@ -363,6 +368,7 @@ export async function recordBlob(input: {
   const count = await GalleryModel.countDocuments({ weddingId: input.weddingId });
   if (count >= ITEM_CAP) throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This gallery is full.");
   const title = titleFrom(input.pathname);
+  const album = await eventOnWedding(input.weddingId, input.eventId);
   try {
     const row = await GalleryModel.create({
       weddingId: input.weddingId,
@@ -372,7 +378,7 @@ export async function recordBlob(input: {
       storageKey: input.pathname,
       publicPath: input.url,
       title,
-      ...((await eventOnWedding(input.weddingId, input.eventId)) ? { eventId: await eventOnWedding(input.weddingId, input.eventId) } : {}),
+      ...(album ? { eventId: album } : {}),
       uploadedBy: input.uploadedBy,
       hidden: false,
       schemaVersion: 1,
@@ -381,7 +387,10 @@ export async function recordBlob(input: {
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && (error as { code?: number }).code === 11000) {
       const won = await GalleryModel.findOne({ storageKey: input.pathname, weddingId: input.weddingId });
-      if (won) return { id: idOf(won._id), title: won.title ?? title, kind: won.kind };
+      if (won) {
+        if (album && !won.eventId) await GalleryModel.updateOne({ _id: won._id }, { $set: { eventId: album } });
+        return { id: idOf(won._id), title: won.title ?? title, kind: won.kind };
+      }
     }
     throw error;
   }
