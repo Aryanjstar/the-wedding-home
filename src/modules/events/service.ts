@@ -16,6 +16,7 @@ import {
 } from "@/server/db/schemas";
 import type { EventDoc } from "@/server/db/documents";
 import { ServiceError } from "@/server/http/handle";
+import { geocodeFirst } from "@/server/maps/osm";
 
 export const EVENT_KINDS = ["roka", "engagement", "mehendi", "haldi", "sangeet", "cocktail", "wedding", "reception", "custom"] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -72,6 +73,8 @@ export function presentEvent(event: EventRow) {
           city: event.venue?.city ?? null,
           mapsUrl: mapsUrl(event.venue),
           embedUrl: mapEmbedUrl(event.venue),
+          lat: event.venue?.location?.coordinates?.[1] ?? null,
+          lng: event.venue?.location?.coordinates?.[0] ?? null,
         }
       : null,
     description: event.description ?? null,
@@ -189,6 +192,17 @@ function cleanVenue(venue: z.infer<typeof venueSchema> | null | undefined) {
   return clean.name || clean.address || clean.city ? clean : null;
 }
 
+/** Coordinates for a venue from OpenStreetMap, best effort. A venue without them still has its map link. */
+async function locate(venue: { name?: string; address?: string; city?: string } | null) {
+  if (!venue || !(venue.name || venue.address)) return undefined;
+  const point = await geocodeFirst([
+    [venue.name, venue.address, venue.city].filter(Boolean).join(", "),
+    [venue.address, venue.city].filter(Boolean).join(", "),
+    [venue.name, venue.city].filter(Boolean).join(", "),
+  ]);
+  return point ? { type: "Point" as const, coordinates: [point.lng, point.lat] } : undefined;
+}
+
 function checkTimes(startsAt: Date, endsAt: Date | null | undefined) {
   if (endsAt && endsAt.getTime() <= startsAt.getTime()) {
     throw new ServiceError(400, "VALIDATION_ERROR", "ENDS_BEFORE_START", "The end time must be after the start.");
@@ -225,7 +239,9 @@ export async function createEvent(request: Request, body: unknown) {
   const muhuratAt = input.muhuratAt ? new Date(input.muhuratAt) : null;
   checkTimes(startsAt, endsAt);
   checkMuhurat(isPrimary, muhuratAt);
-  const venue = cleanVenue(input.venue);
+  const cleaned = cleanVenue(input.venue);
+  const location = await locate(cleaned);
+  const venue = cleaned ? { ...cleaned, ...(location ? { location } : {}) } : null;
 
   const id = await withTransaction(async (session) => {
     if (isPrimary) await EventModel.updateMany({ weddingId, isPrimary: true }, { $set: { isPrimary: false }, $unset: { muhuratAt: "" } }, { session });
@@ -277,8 +293,13 @@ export async function updateEvent(request: Request, eventId: string, body: unkno
   else unset.muhuratAt = "";
   if (input.venue !== undefined) {
     const venue = cleanVenue(input.venue);
-    if (venue) set.venue = venue;
-    else unset.venue = "";
+    const before = [event.venue?.name, event.venue?.address, event.venue?.city].join("|");
+    const after = venue ? [venue.name, venue.address, venue.city].join("|") : "";
+    if (venue) {
+      // Look the place up again only when it moved; otherwise keep the coordinates we have.
+      const kept = before === after ? event.venue?.location ?? undefined : await locate(venue);
+      set.venue = { ...venue, ...(kept?.coordinates?.length === 2 ? { location: { type: "Point", coordinates: kept.coordinates } } : {}) };
+    } else unset.venue = "";
   }
   for (const field of ["description", "dressNote", "howToReach", "parking"] as const) {
     if (input[field] === undefined) continue;

@@ -23,20 +23,19 @@ type Vendor = {
   eventIds: string[];
   notes: string | null;
   source: "manual" | "places";
-  rating: number | null;
+  placeId: string | null;
   mapsUrl: string | null;
 };
 
 type Place = {
-  googlePlaceId: string;
+  placeId: string;
   name: string;
-  rating: number | null;
-  ratingCount: number | null;
   address: string | null;
   phone: string | null;
   website: string | null;
   mapsUrl: string;
-  distanceM: number | null;
+  osmUrl: string;
+  distanceM: number;
   savedVendorId: string | null;
 };
 
@@ -76,7 +75,7 @@ export function VendorsPage() {
                 <div className="ws-vendor-head">
                   <div>
                     <h3>{vendor.name}</h3>
-                    <span className="ui-hint">{vendorCategoryLabels[vendor.category] ?? vendor.category}{vendor.rating ? <span className="ws-stars"> · ★ {vendor.rating.toFixed(1)}</span> : null}</span>
+                    <span className="ui-hint">{vendorCategoryLabels[vendor.category] ?? vendor.category}{vendor.source === "places" ? " · from the map" : ""}</span>
                   </div>
                   <Button tone="ghost" size="sm" icon="edit" onClick={() => setEditing(vendor)} aria-label={`Edit ${vendor.name}`} />
                 </div>
@@ -113,7 +112,7 @@ function NearbySearch({ onSaved }: { onSaved: () => void }) {
   const [category, setCategory] = useState("photographer");
   const [eventId, setEventId] = useState("");
   const [words, setWords] = useState("");
-  const [results, setResults] = useState<{ near: string; places: Place[] } | null>(null);
+  const [results, setResults] = useState<{ near: string; attribution: string; places: Place[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const withVenue = (events.data?.items ?? []).filter((event) => event.venue);
@@ -135,9 +134,9 @@ function NearbySearch({ onSaved }: { onSaved: () => void }) {
 
   async function save(place: Place) {
     try {
-      await api("/api/vendors", { method: "POST", body: { place: { googlePlaceId: place.googlePlaceId }, category, ...(eventId ? { eventIds: [eventId] } : {}) } });
+      await api("/api/vendors", { method: "POST", body: { place: { id: place.placeId }, category, ...(eventId ? { eventIds: [eventId] } : {}) } });
       toast(`${place.name} saved to My vendors.`);
-      setResults((current) => current && { ...current, places: current.places.map((item) => (item.googlePlaceId === place.googlePlaceId ? { ...item, savedVendorId: "saved" } : item)) });
+      setResults((current) => current && { ...current, places: current.places.map((item) => (item.placeId === place.placeId ? { ...item, savedVendorId: "saved" } : item)) });
       onSaved();
     } catch (failure) {
       toast(failure instanceof ApiError && failure.reason === "ALREADY_SAVED" ? "Already in My vendors." : errorText(failure), failure instanceof ApiError && failure.reason === "ALREADY_SAVED" ? "info" : "bad");
@@ -172,25 +171,23 @@ function NearbySearch({ onSaved }: { onSaved: () => void }) {
           <EmptyState icon="search" title="Nothing found">Try another kind of vendor or fewer words.</EmptyState>
         ) : (
           <>
-            <p className="ui-hint">{results.places.length} near {results.near}. Ratings and contacts come from Google.</p>
+            <p className="ui-hint">{results.places.length} near {results.near}, nearest first. Names and contacts come from OpenStreetMap, where Indian listings can be thin, so call before you trust a number.</p>
             <div className="ws-grid ws-grid-3">
               {results.places.map((place) => (
-                <div key={place.googlePlaceId} className="ws-place">
+                <div key={place.placeId} className="ws-place">
                   <h4>{place.name}</h4>
-                  <span className="ui-hint">
-                    {place.rating ? <span className="ws-stars">★ {place.rating.toFixed(1)}</span> : null}
-                    {place.ratingCount ? ` (${place.ratingCount})` : ""}
-                    {place.distanceM !== null ? ` · ${place.distanceM < 1000 ? `${place.distanceM} m` : `${(place.distanceM / 1000).toFixed(1)} km`} away` : ""}
-                  </span>
+                  <span className="ui-hint"><Icon name="map" size={13} /> {place.distanceM < 1000 ? `${place.distanceM} m` : `${(place.distanceM / 1000).toFixed(1)} km`} away</span>
                   {place.address ? <span className="ui-hint">{place.address}</span> : null}
                   {place.phone ? <a href={`tel:${place.phone.replace(/\s/g, "")}`} className="ui-hint">{place.phone}</a> : null}
                   <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginTop: "0.3rem" }}>
                     {place.savedVendorId ? <Badge tone="good">Saved</Badge> : <Button size="sm" icon="plus" onClick={() => void save(place)}>Save</Button>}
-                    <ButtonLink href={place.mapsUrl} external size="sm" tone="secondary" icon="map">Map</ButtonLink>
+                    <ButtonLink href={place.mapsUrl} external size="sm" tone="secondary" icon="map">Google Maps</ButtonLink>
+                    <ButtonLink href={place.osmUrl} external size="sm" tone="ghost">OSM</ButtonLink>
                   </div>
                 </div>
               ))}
             </div>
+            <p className="ui-hint"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">{results.attribution}</a></p>
           </>
         )
       ) : null}

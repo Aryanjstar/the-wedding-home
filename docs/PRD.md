@@ -1,9 +1,9 @@
 # The Wedding Home — Product Requirements Document
 
 **Product:** The Wedding Home — the operating system for Indian marriages  
-**Version:** 1.4  
+**Version:** 1.5  
 **Status:** Ready to build  
-**Date:** 30 Sep 2026 (first written 20 Sep 2026)  
+**Date:** 18 Oct 2026 (first written 20 Sep 2026; v1.4 was 30 Sep 2026)  
 **Audience:** Anyone implementing or reviewing a slice
 
 This PRD is the build-ready expansion of the locked plan. It does not invent pages or roles.
@@ -16,6 +16,8 @@ This PRD is the build-ready expansion of the locked plan. It does not invent pag
 | [PLAYBOOK.md](./PLAYBOOK.md) | How we got here; how to do the next idea |
 
 Build in the order in §8. Do not add navigation that is not in the page map.
+
+**v1.5 (asked by the family on 18 Oct 2026):** Music plays by default on the guest site: every function has a piece chosen for its occasion, North or South, and one tap mutes it (remembered). Original music synthesised in the browser counts as rights-cleared. Nearby vendor search uses OpenStreetMap. See FR-5.2, FR-6.1, §11.
 
 **v1.4:** RSVP diet is three headcounts: veg, non-veg, and Jain. No separate no-onion-garlic count. Website and Members stay Admin-only and hidden from a Manager. RSVP stays on the personal invite, not a tab on the public home. See §6, FR-2.3, §12, §18.
 
@@ -335,7 +337,7 @@ Admin chooses traditional, classical, art, or choreography. Tokens: palette, typ
 
 **FR-5.2 Per-function override**  
 Colour, background, motion, music, looping video per event.  
-**AC:** Sangeet-only guests never receive Haldi tokens. Obvious mute. Background video muted autoplay, loop, tap to hear. Family-uploaded or rights-cleared only.
+**AC:** Sangeet-only guests never receive Haldi tokens. Music is on by default and starts on the guest's first touch (browsers forbid sound before it); an obvious mute is always on screen and the choice is remembered. Background video muted autoplay, loop, tap to hear. Family-uploaded, rights-cleared, or original music only.
 
 **FR-5.3 Publish**  
 Admin sets public slug, publishes.  
@@ -365,7 +367,7 @@ Two helplines (bride side / groom side) and suggested stay as **text**. Not hote
 
 **FR-6.1 Nearby search**  
 Search near a function venue (photographer, caterer, décor, makeup, florist, DJ, venue, …). Show name, rating, address, distance, contact when the map/API provides them. **Add to My vendors**.  
-**AC:** No book, no pay. Guest function map does not become this search UI.
+**AC:** No book, no pay. Guest function map does not become this search UI. v1.5 searches OpenStreetMap, which has no ratings and thinner Indian listings than Google; results show its attribution.
 
 **FR-6.2 My vendors**  
 Saved list on the same Vendors page: name, category (photographer, videographer, venue, caterer, decorator, DJ, makeup, mehendi artist, pandit, choreographer, florist, planner, transport, other), contact person, phone, email, address, website, optional agreed cost INR, related events, notes.  
@@ -403,12 +405,14 @@ Stable token object (packs are named sets of the same shape):
 - `type` — display, body  
 - `motion` — still | slow | playful | dance  
 - `background` — color | pattern | image | video  
-- `audio` — optional; always muted-autoplay with mute control  
+- `audio` — on by default with an obvious, remembered mute. Each occasion has a default piece; an Admin may choose another or none  
 - `video` — optional loop, muted autoplay, poster required  
 
 Wedding-level tokens are the default. A function copies them, then overrides fields. New packs (Rajasthani miniature, South silk, phulkari, …) **must not** require a new data model.
 
-Default colour worlds: Haldi turmeric/playful; Mehendi henna/slow; Sangeet jewel/dance; Wedding ivory-sindoor/slow; Reception midnight/still.
+Default colour worlds: Haldi turmeric/playful; Mehendi henna/slow; Sangeet jewel/dance; Wedding (North pheras) sindoor-gold/slow, or Wedding (South temple) ivory-kumkum/slow; Roka and engagement doorway-toran/slow; Reception midnight/still.
+
+Default music per occasion (v1.5): Roka, Bhairavi on shehnai · Engagement, Pilu on sarangi · Haldi, boliyan on dholak and chimta · Mehendi, Raga Mand (ghoomar) on sarangi · Sangeet, bhangra on dhol · Cocktail, qawwali with harmonium and claps · Wedding (North), the pheras: Bhairavi shehnai with shankh and bells · Wedding (South), Kalyani on nadaswaram with thavil · Reception, Bageshri on bansuri. A custom function plays its pack's music. The full list of North and South pieces lives in `src/data/worlds.ts`.
 
 Guest-gallery video is **not** a theme token. Three generic “classic / minimal / modern” skins are not a substitute for this model.
 

@@ -127,7 +127,7 @@ function WebsiteStudio() {
             {data.events.map((event) => <FunctionTheme key={event.id} event={event} onSaved={(next) => setData(next)} />)}
           </div>
         )}
-        <p className="ui-hint" style={{ marginTop: "0.8rem" }}>A guest invited only to the Sangeet never sees the Haldi yellow. Music starts muted and guests turn it on.</p>
+        <p className="ui-hint" style={{ marginTop: "0.8rem" }}>Every function plays its own piece by default, chosen for the occasion; guests can mute it with one tap. A guest invited only to the Sangeet never sees the Haldi yellow.</p>
       </Card>
 
       <div className="ws-grid ws-grid-2">
@@ -195,7 +195,12 @@ function FunctionTheme({ event, onSaved }: { event: Site["events"][number]; onSa
           <Field label="Music">
             <Select value={track} onChange={(change) => setTrack(change.target.value)}>
               <option value="">Default ({musicInfo[event.resolved.music as Exclude<MusicId, "none">]?.label ?? "None"})</option>
-              {musicIds.map((id) => <option key={id} value={id}>{id === "none" ? "No music" : musicInfo[id].label}</option>)}
+              {(["North", "South", "Everywhere"] as const).map((region) => (
+                <optgroup key={region} label={region === "Everywhere" ? "Drone" : `${region} India`}>
+                  {musicIds.filter((id) => id !== "none" && musicInfo[id].region === region).map((id) => <option key={id} value={id}>{musicInfo[id as Exclude<MusicId, "none">].label}</option>)}
+                </optgroup>
+              ))}
+              <option value="none">No music</option>
             </Select>
           </Field>
           <Field label="Accent">

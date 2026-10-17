@@ -293,7 +293,7 @@ const vendorSchema = plainSchema(
     agreedCostInr: Number,
     eventIds: { type: [Schema.Types.ObjectId], default: undefined },
     notes: String,
-    place: { googlePlaceId: String, rating: Number },
+    place: { provider: String, id: String, lat: Number, lng: Number },
     source: { type: String, required: true, enum: ["manual", "places"], default: "manual" },
     createdBy: { type: Schema.Types.ObjectId, required: true },
     schemaVersion: { type: Number, required: true, default: 1 },
@@ -302,8 +302,8 @@ const vendorSchema = plainSchema(
 );
 vendorSchema.index({ weddingId: 1, category: 1 });
 vendorSchema.index(
-  { weddingId: 1, "place.googlePlaceId": 1 },
-  { unique: true, partialFilterExpression: { "place.googlePlaceId": { $type: "string" } } },
+  { weddingId: 1, "place.id": 1 },
+  { unique: true, partialFilterExpression: { "place.id": { $type: "string" } } },
 );
 
 const gallerySchema = plainSchema(

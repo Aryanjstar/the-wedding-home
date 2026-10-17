@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
+import { SoundToggle } from "@/components/guest/sound";
 import { Mark } from "@/components/mark";
 import { useSession } from "@/components/session";
 
@@ -36,6 +37,7 @@ export function GuestChrome({ children, current }: { children: ReactNode; curren
           ))}
           {person ? <Link href="/app" onClick={() => setOpen(false)}>Family app</Link> : null}
         </nav>
+        <SoundToggle />
       </header>
       {children}
     </>

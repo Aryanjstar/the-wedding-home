@@ -10,6 +10,8 @@ const KEY = "twh-sound";
 
 type Sound = {
   on: boolean;
+  /** On, but the browser is waiting for the guest's first touch before it allows sound. */
+  blocked: boolean;
   track: MusicId;
   label: string | null;
   setTrack: (track: MusicId) => void;
@@ -19,16 +21,19 @@ type Sound = {
 const SoundContext = createContext<Sound | null>(null);
 
 /**
- * One player for the whole guest visit. It starts silent, as the PRD asks. Once a guest turns the
- * sound on, the choice is remembered and each function page plays its own piece, crossfading.
+ * One player for the whole guest visit. Music is on by default and every function has a piece chosen
+ * for it. Browsers only allow sound after a person touches the page, so it starts on the first tap or
+ * key press anywhere. A guest who mutes is remembered, and nothing plays for them after that.
  */
 export function SoundProvider({ children }: { children: ReactNode }) {
-  const [on, setOn] = useState(false);
+  const [on, setOn] = useState(true);
+  const [blocked, setBlocked] = useState(true);
   const [track, setTrackState] = useState<MusicId>("none");
   const context = useRef<AudioContext | null>(null);
   const master = useRef<GainNode | null>(null);
   const current = useRef<{ id: MusicId; performance: Performance } | null>(null);
   const wanted = useRef<MusicId>("none");
+  const wantOn = useRef(true);
 
   const ensure = useCallback(() => {
     if (!context.current) {
@@ -55,31 +60,53 @@ export function SoundProvider({ children }: { children: ReactNode }) {
     current.current = null;
   }, []);
 
-  // A returning guest who left the sound on: start on their first touch, which browsers require.
-  useEffect(() => {
-    if (window.localStorage.getItem(KEY) !== "on") return;
-    const resume = () => {
-      const audio = ensure();
-      void audio?.resume();
-      setOn(true);
-      start(wanted.current);
-    };
-    window.addEventListener("pointerdown", resume, { once: true });
-    window.addEventListener("keydown", resume, { once: true });
-    return () => {
-      window.removeEventListener("pointerdown", resume);
-      window.removeEventListener("keydown", resume);
-    };
+  /** The guest has touched the page: from here on the button mutes, whether or not the device plays. */
+  const unlock = useCallback(() => {
+    setBlocked(false);
+    const audio = ensure();
+    if (!audio) return;
+    void audio.resume().catch(() => undefined);
+    if (wantOn.current) start(wanted.current);
   }, [ensure, start]);
+
+  // Try to play straight away; if the browser holds it, the first touch anywhere starts it.
+  useEffect(() => {
+    const muted = window.localStorage.getItem(KEY) === "off";
+    wantOn.current = !muted;
+    const timer = window.setTimeout(() => {
+      if (muted) {
+        setOn(false);
+        return;
+      }
+      const audio = ensure();
+      if (!audio) return;
+      start(wanted.current);
+      void audio.resume().then(() => {
+        if (audio.state === "running") setBlocked(false);
+      }).catch(() => undefined);
+    }, 0);
+    const onFirstTouch = (event: Event) => {
+      // A first tap on the mute button itself should mute, not start the music.
+      if (event.target instanceof Element && event.target.closest(".g-sound")) return;
+      if (!wantOn.current) return;
+      unlock();
+    };
+    const events = ["pointerdown", "keydown", "touchstart"] as const;
+    events.forEach((name) => window.addEventListener(name, onFirstTouch, { capture: true }));
+    return () => {
+      window.clearTimeout(timer);
+      events.forEach((name) => window.removeEventListener(name, onFirstTouch, { capture: true }));
+    };
+  }, [ensure, start, unlock]);
 
   useEffect(() => {
     const hidden = () => {
       if (document.hidden) void context.current?.suspend();
-      else if (on) void context.current?.resume();
+      else if (wantOn.current) void context.current?.resume();
     };
     document.addEventListener("visibilitychange", hidden);
     return () => document.removeEventListener("visibilitychange", hidden);
-  }, [on]);
+  }, []);
 
   useEffect(() => () => {
     current.current?.performance.stop(0.1);
@@ -89,25 +116,30 @@ export function SoundProvider({ children }: { children: ReactNode }) {
   const setTrack = useCallback((id: MusicId) => {
     wanted.current = id;
     setTrackState(id);
-    if (on) start(id);
-  }, [on, start]);
+    if (wantOn.current) start(id);
+  }, [start]);
 
   const toggle = useCallback(() => {
+    if (on && blocked) {
+      // The guest pressed play before touching anything else: let the music in.
+      unlock();
+      return;
+    }
     if (on) {
       stop();
       setOn(false);
+      wantOn.current = false;
       window.localStorage.setItem(KEY, "off");
       return;
     }
-    const audio = ensure();
-    void audio?.resume();
     setOn(true);
+    wantOn.current = true;
     window.localStorage.setItem(KEY, "on");
-    start(wanted.current);
-  }, [on, ensure, start, stop]);
+    unlock();
+  }, [on, blocked, unlock, stop]);
 
   return (
-    <SoundContext.Provider value={{ on, track, label: musicLabel(track)?.label ?? null, setTrack, toggle }}>
+    <SoundContext.Provider value={{ on, blocked, track, label: musicLabel(track)?.label ?? null, setTrack, toggle }}>
       {children}
     </SoundContext.Provider>
   );
@@ -131,14 +163,23 @@ export function SoundToggle({ inline = false }: { inline?: boolean }) {
   const sound = useSound();
   if (!sound || sound.track === "none") return null;
   const info = musicLabel(sound.track);
+  const waiting = sound.on && sound.blocked;
   return (
-    <button type="button" className={inline ? "g-sound g-sound-inline" : "g-sound"} aria-pressed={sound.on} onClick={sound.toggle} title={info?.credit}>
-      <span className="g-sound-icon" data-on={sound.on}>
+    <button
+      type="button"
+      className={inline ? "g-sound g-sound-inline" : "g-sound"}
+      aria-pressed={sound.on}
+      data-waiting={waiting}
+      onClick={sound.toggle}
+      title={info ? `${info.credit} ${sound.on ? "Tap to mute." : "Tap to play."}` : undefined}
+      aria-label={waiting ? `Tap for music: ${info?.label}` : sound.on ? `Mute ${info?.label}` : `Play ${info?.label}`}
+    >
+      <span className="g-sound-icon" data-on={sound.on && !waiting}>
         <Icon name={sound.on ? "volume" : "mute"} size={18} />
-        {sound.on ? <span className="g-eq" aria-hidden="true"><i /><i /><i /></span> : null}
+        {sound.on && !waiting ? <span className="g-eq" aria-hidden="true"><i /><i /><i /></span> : null}
       </span>
       <span className="g-sound-text">
-        <strong>{sound.on ? "Sound on" : "Play music"}</strong>
+        <strong>{waiting ? "Tap for music" : sound.on ? "Music on" : "Music off"}</strong>
         <small>{info?.label}</small>
       </span>
     </button>

@@ -12,12 +12,12 @@ Live: [the-wedding-home.vercel.app](https://the-wedding-home.vercel.app)
 - Functions from Roka to Reception, each with a venue map that opens Google Maps, and veg / non-veg / Jain totals for the caterer.
 - Households, not individuals. Each gets a private link to share on WhatsApp (their own chat when you have the number), by email, or as an e-card picture.
 - Reminders 1 month, 1 week, and 1 day before each function, plus "send now" to everyone still silent.
-- Tasks with a person, a date, and a priority. A spend log in rupees (not a budget). Vendors with the agreed price, and a nearby search.
+- Tasks with a person, a date, and a priority. A spend log in rupees (not a budget). Vendors with the agreed price, and a nearby search on OpenStreetMap (no key needed).
 - One shared photo and video gallery with a stable QR, albums per function, hide, and download.
-- A guest website in Traditional, Classical, Art, or Choreography, where each function gets its own colours, motif, and music. YouTube or Vimeo live on the site.
+- A guest website in Traditional, Classical, Art, or Choreography, where each function gets its own colours, motif, and music: 22 original North and South Indian pieces (shehnai, nadaswaram and thavil, dhol, dholak, tabla, mridangam, sitar, veena, santoor, sarangi, bansuri, harmonium, shankh). YouTube or Vimeo live on the site.
 - Admins invite family, change roles, and publish the website. The wedding always keeps an Admin.
 
-**For guests (no account, ever):** the wedding website, their personal invitation with a per-function RSVP, the maps, the helplines, live, and the gallery. Music starts muted; one tap turns it on and it follows them from Haldi to Sangeet.
+**For guests (no account, ever):** the wedding website, their personal invitation with a per-function RSVP, the maps, the helplines, live, and the gallery. Music is on by default, a piece chosen for each occasion, and follows them from Haldi to Sangeet; one tap mutes it.
 
 Mail leaves as `The Wedding Home <onboarding@aryanjaiswal.in>`.
 

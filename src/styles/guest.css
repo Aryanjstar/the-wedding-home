@@ -97,6 +97,8 @@
   text-align: left;
 }
 .g-sound:hover { border-color: var(--g-accent); }
+.g-sound[data-waiting="true"] .g-sound-icon { animation: g-pulse-soft 1.6s ease-in-out infinite; }
+@keyframes g-pulse-soft { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--g-accent) 20%, transparent); } }
 .g-sound-icon { position: relative; display: grid; place-items: center; width: 2.1rem; height: 2.1rem; border-radius: 50%; background: color-mix(in srgb, var(--g-accent) 14%, transparent); color: var(--g-accent); }
 .g-sound-icon[data-on="true"] { background: var(--g-accent); color: var(--g-accent-text); }
 .g-sound-text { display: grid; line-height: 1.15; }
@@ -292,3 +294,8 @@
   .g-stage-hero { min-height: 62vh; }
   .g-gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.3rem; }
 }
+
+/* The designed sample site borrows the sound button. */
+.g-sample { --g-surface: #fffaf3; --g-text: #1a1814; --g-muted: #6a635c; --g-accent: #722f37; --g-accent-text: #fff8ee; --g-line: rgba(26, 24, 20, 0.14); }
+.g-sample .guest-bar .g-sound { margin-left: auto; }
+.g-sample .fn-stage .g-sound { color: var(--fn-ink); background: rgba(255, 255, 255, 0.18); border-color: currentColor; }

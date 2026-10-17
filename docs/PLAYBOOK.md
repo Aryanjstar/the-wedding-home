@@ -222,11 +222,25 @@ A slice is done when a human can finish that job in the UI. Start that slice on 
 
 Keep `docs/PROJECT_STATUS.md` in that same change. A new session reads it first. Say whether a milestone is mock UI or working end to end, and leave the earlier milestones in place. It is the progress log, not a second PRD.
 
+### Stage 7b — Prove each slice in a real browser, as every role
+
+Unit tests do not show that a screen saves. In this project the earlier screens looked finished and crashed after every save, because a form read `event.currentTarget` after an `await`. What catches that:
+
+1. Drive the app in Chrome with Playwright (`tests/e2e/journey.spec.ts`, `npm run e2e`): every page, every add, edit, and delete, as an Admin, a Manager, a second family, and a guest on a 390 px phone. Assert that the data is really there afterwards, that a Manager gets 403 on Admin routes, that another wedding gets 404, and that nothing throws in the browser.
+2. Send real mail to plus-addresses of one inbox (`you+role-tag@gmail.com`) so invitations and reminders are seen, not assumed.
+3. Screenshot every page at desktop and phone width and look at them. Alignment, overflow, and empty states are only visible this way.
+4. Measure what you cannot see or hear. The music engine was checked by playing every piece through an analyser for loudness, peaks, and errors.
+5. Read form data before the first `await`; wait for the lists a form defaults from before allowing a save; make switches optimistic so a quick second tap sends the right value. All three were found by the journey, not by review.
+
 ---
 
 ## Stage 8 — Deploy and keep the log
 
 Ship a public URL early even if only slice 1 works. After every deploy, one journey entry: URL, what works, what does not.
+
+Run the same browser journey against production (`E2E_BASE_URL=… npm run e2e`) with a fresh tag. Production is slower and has the real file store, and it found two bugs the dev machine hid. Keep demo passwords out of the repo; pass them in with `E2E_PASSWORD`.
+
+**Providers.** Before building on a paid API, check the key works from the server. Prefer a free, keyless provider behind one adapter when it covers the job (here OpenStreetMap's Nominatim and Photon for venues and vendors, Google Maps only as links and a keyless embed). Public free services fail and throttle: hedge, rate-limit yourself, and make the feature say calmly that it is unavailable. When a decision moves a vendor or a store (here Vercel Blob instead of S3), write it into the architecture, database, and API docs in the same change, with the reason and the planned way back.
 
 ---
 
@@ -242,6 +256,9 @@ Ship a public URL early even if only slice 1 works. After every deploy, one jour
 - Letting Stitch, or a reference repo, silently change a locked field.
 - Scaffolding empty modules for slices you have not started.
 - Leaving a finished step uncommitted.
+- Believing a screen saves because it renders. Use it in a browser.
+- Building on a paid key nobody has tested, and finding out in production.
+- Shipping a decision (a new store, a new map provider, sound on by default) without updating the source-of-truth docs.
 
 ---
 
@@ -263,3 +280,5 @@ Ship a public URL early even if only slice 1 works. After every deploy, one jour
 - [ ] Screens drawn in Stitch from the page map ([templates/STITCH.md](./templates/STITCH.md))
 - [ ] First slice defined in one sentence
 - [ ] First deploy planned
+- [ ] Browser journey (`tests/e2e`) covering every role, run locally and against production
+- [ ] Every external provider's key checked from the server before the slice that needs it
