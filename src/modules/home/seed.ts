@@ -33,7 +33,12 @@ const organisers = [
 const realOrganisers = organisers.filter((person) => person.email.endsWith("gmail.com") || person.email.endsWith("iiitdwd.ac.in"));
 
 async function ensureRealOrganisers() {
-  const wedding = await WeddingModel.findOne({ "site.slug": "aanya-and-kabir" });
+  const wedding = await WeddingModel.findOne({
+    $or: [
+      { "site.slug": "aanya-and-kabir" },
+      { brideName: "Aanya Sharma", groomName: "Kabir Mehta" },
+    ],
+  });
   if (!wedding) return;
   for (const person of realOrganisers) {
     let user = await UserModel.findOne({ email: person.email });

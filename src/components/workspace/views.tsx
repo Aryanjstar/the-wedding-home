@@ -86,7 +86,7 @@ function OwnDashboard() {
     ["Functions", String(counts.events)],
     ["Tasks", `${counts.tasksDone} / ${counts.tasksTotal}`],
     ["Households", String(counts.households)],
-    ["Replies", "0"],
+    ["Replies", String(counts.replies)],
     ["Spent", inr(counts.expensesTotalInr)],
     ["Vendors", String(counts.vendors)],
   ];
@@ -287,11 +287,24 @@ function OwnGuests() {
   const { households, events, wedding, addHousehold, sendHouseholdEmail } = usePreview();
   const [selectedId, setSelectedId] = useState(households[0]?.id ?? "");
   const [notice, setNotice] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string[] | null>(null);
   const selected = households.find((house) => house.id === selectedId) ?? households[0];
   const names = wedding ? `${wedding.bride.split(" ")[0]} & ${wedding.groom.split(" ")[0]}` : "The family";
+  const invited = picked ?? events.map((event) => event.id);
+
+  function toggleEvent(id: string) {
+    setPicked((current) => {
+      const base = current ?? events.map((event) => event.id);
+      return base.includes(id) ? base.filter((item) => item !== id) : [...base, id];
+    });
+  }
 
   async function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (invited.length === 0) {
+      setNotice("Invite them to at least one function.");
+      return;
+    }
     const data = new FormData(event.currentTarget);
     const email = String(data.get("email") || "").trim();
     const failure = await addHousehold({
@@ -299,6 +312,7 @@ function OwnGuests() {
       side: String(data.get("side") || "other") as "bride" | "groom" | "other",
       maxPeople: Number(data.get("max") || 2),
       email,
+      invitedEventIds: invited,
     });
     setNotice(failure ?? "Household added. Share sends their own link.");
     if (!failure) event.currentTarget.reset();
@@ -308,14 +322,9 @@ function OwnGuests() {
     const response = await fetch(`/api/households/${id}/share`);
     if (!response.ok) {
       setNotice("The link is not ready yet.");
-      return;
+      return null;
     }
-    const body = await response.json() as { waUrl: string };
-    const link = document.createElement("a");
-    link.href = body.waUrl;
-    link.target = "_blank";
-    link.rel = "noopener";
-    link.click();
+    return response.json() as Promise<{ inviteUrl: string; waUrl: string }>;
   }
 
   return (
@@ -334,6 +343,17 @@ function OwnGuests() {
         </label>
         <label>Max people<input name="max" type="number" min={1} max={25} defaultValue={4} /></label>
         <label>Email<input name="email" type="email" autoComplete="email" placeholder="Optional, for the invitation email" /></label>
+        {events.length > 0 ? (
+          <fieldset>
+            <legend className="kicker">Invited to</legend>
+            {events.map((item) => (
+              <label key={item.id} className="row-between">
+                {item.title}
+                <input type="checkbox" checked={invited.includes(item.id)} onChange={() => toggleEvent(item.id)} />
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <button className="btn" type="submit">Add household</button>
         {events.length === 0 ? <p className="fine">Add the functions first, then the invite lists them.</p> : null}
         {notice ? <p className="fine">{notice}</p> : null}
@@ -348,7 +368,16 @@ function OwnGuests() {
               <span>{house.reply}</span>
             </button>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.6rem" }}>
-              <button className="btn" type="button" onClick={() => void share(house.id)}>Share on WhatsApp</button>
+              <button className="btn" type="button" onClick={() => void share(house.id).then((body) => { if (body) window.open(body.waUrl, "_blank", "noopener"); })}>Share on WhatsApp</button>
+              <button className="btn-text" type="button" onClick={() => void share(house.id).then(async (body) => {
+                if (!body) return;
+                try {
+                  await navigator.clipboard.writeText(body.inviteUrl);
+                  setNotice("Link copied.");
+                } catch {
+                  setNotice(body.inviteUrl);
+                }
+              })}>Copy link</button>
               <button
                 className="btn-text"
                 type="button"
@@ -447,23 +476,30 @@ export function Tasks() {
 }
 
 function OwnTasks() {
-  const { tasks, addTask } = usePreview();
+  const { tasks, addTask, updateTask } = usePreview();
   const [notice, setNotice] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "mine" | "done">("all");
+  const nextStatus = { todo: "doing", doing: "done", done: "todo" } as const;
   const columns = [
     ["To do", tasks.filter((task) => task.status === "todo")],
     ["Doing", tasks.filter((task) => task.status === "doing")],
     ["Done", tasks.filter((task) => task.status === "done")],
   ] as const;
+  const visible = columns
+    .map(([label, items]) => [label, items.filter((task) => (filter === "mine" ? task.mine : true))] as const)
+    .filter(([label]) => (filter === "done" ? label === "Done" : true));
 
   async function add(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const data = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const data = new FormData(form);
     const failure = await addTask({
       title: String(data.get("title") || ""),
       priority: String(data.get("priority") || "medium") as "low" | "medium" | "high",
+      assignToMe: data.get("mine") === "on",
     });
     setNotice(failure ?? "Task added.");
-    if (!failure) event.currentTarget.reset();
+    if (!failure) form.reset();
   }
 
   return (
@@ -479,11 +515,23 @@ function OwnTasks() {
             <option value="low">Low</option>
           </select>
         </label>
+        <label className="row-between">Assign to me<input name="mine" type="checkbox" /></label>
         <button className="btn" type="submit">Add task</button>
         {notice ? <p className="fine">{notice}</p> : null}
       </form>
+      <div className="tabs" role="tablist" aria-label="Task filters">
+        {([
+          ["all", "All"],
+          ["mine", "Mine"],
+          ["done", "Done"],
+        ] as const).map(([id, label]) => (
+          <button key={id} className="tab" type="button" role="tab" aria-selected={filter === id} onClick={() => setFilter(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="columns">
-        {columns.map(([label, items]) => (
+        {visible.map(([label, items]) => (
           <section key={label}>
             <p className="kicker">{label}</p>
             <div className="list">
@@ -491,8 +539,16 @@ function OwnTasks() {
               {items.map((task) => (
                 <article key={task.id} className="glass list-row">
                   <span className={`dot ${task.priority}`} />
-                  <strong style={{ flex: 1 }}>{task.title}</strong>
-                  <span className="muted">{task.who}</span>
+                  <div style={{ flex: 1 }}>
+                    <strong>{task.title}</strong>
+                    <p className="muted">{task.who}</p>
+                  </div>
+                  <button className="btn-text" type="button" onClick={() => void updateTask(task.id, { status: nextStatus[task.status] }).then(setNotice)}>
+                    {task.status === "done" ? "Reopen" : "Advance"}
+                  </button>
+                  <button className="btn-text" type="button" onClick={() => void updateTask(task.id, { assignToMe: !task.mine }).then(setNotice)}>
+                    {task.mine ? "Leave" : "Mine"}
+                  </button>
                 </article>
               ))}
             </div>
@@ -720,15 +776,63 @@ export function Vendors() {
 
 export function Website() {
   const { sample } = usePreview();
-  if (!sample) {
-    return (
-      <AdminsOnly title="Website">
-        <Title kicker="Website">Guest site</Title>
-        <p className="lede">The guest website is not published yet. Themes and the live page come after the wedding is set up.</p>
-      </AdminsOnly>
-    );
-  }
+  if (!sample) return <OwnWebsite />;
   return <SampleWebsite />;
+}
+
+function OwnWebsite() {
+  const { site, wedding, publishSite } = usePreview();
+  const packs = [
+    ["traditional", "Traditional"],
+    ["classical", "Classical"],
+    ["art", "Art"],
+    ["choreography", "Choreography"],
+  ] as const;
+  const [packId, setPackId] = useState(site?.packId || "classical");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const suggested = wedding ? `${wedding.bride}-${wedding.groom}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) : "";
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    const data = new FormData(event.currentTarget);
+    const published = String(data.get("intent") || "publish") !== "draft";
+    setPending(true);
+    const failure = await publishSite({
+      slug: String(data.get("slug") || ""),
+      published,
+      packId,
+      liveUrl: String(data.get("live") || ""),
+    });
+    setNotice(failure ?? (published ? "The guest site is live." : "Saved as a draft."));
+    setPending(false);
+  }
+
+  return (
+    <AdminsOnly title="Website">
+      <Title kicker="Website">Guest site</Title>
+      <p className="lede">One pack for the wedding. Guests open the address with no account. The designed Aanya sample keeps its own page.</p>
+      <form className="glass card fields" style={{ marginTop: "1rem", maxWidth: 640 }} onSubmit={(event) => void save(event)}>
+        <div className="stat-row">
+          {packs.map(([id, label]) => (
+            <button key={id} className="glass stat list-button" type="button" aria-pressed={packId === id} onClick={() => setPackId(id)}>
+              <span className="kicker">{packId === id ? "Selected" : "Pack"}</span>
+              <b>{label}</b>
+            </button>
+          ))}
+        </div>
+        <label>Address<input name="slug" required defaultValue={site?.slug || suggested} pattern="[a-z0-9]+(-[a-z0-9]+)*" minLength={3} maxLength={48} /></label>
+        <label>YouTube or Vimeo, optional<input name="live" type="url" defaultValue={site?.liveUrl || ""} placeholder="https://www.youtube.com/watch?v=" /></label>
+        <div className="actions">
+          <button className="btn" name="intent" value="publish" type="submit" disabled={pending}>Publish</button>
+          <button className="btn-text" name="intent" value="draft" type="submit" disabled={pending}>Save draft</button>
+        </div>
+        {site?.published && site.slug ? <Link className="btn-text" href={`/w/${site.slug}`}>Preview as guest</Link> : null}
+        {notice ? <p className="fine">{notice}</p> : null}
+      </form>
+    </AdminsOnly>
+  );
 }
 
 function SampleWebsite() {
@@ -761,18 +865,65 @@ function SampleWebsite() {
 }
 
 export function Photos() {
-  const { sample, photos } = usePreview();
+  const { sample, photos, galleryUrl, guestUploadEnabled, uploadPhoto, deletePhoto, setGuestUpload } = usePreview();
+  const [notice, setNotice] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   if (!sample) {
+    async function upload(event: FormEvent<HTMLFormElement>) {
+      event.preventDefault();
+      if (pending) return;
+      const form = event.currentTarget;
+      const file = new FormData(form).get("file");
+      if (!(file instanceof File)) return;
+      setPending(true);
+      const failure = await uploadPhoto(file);
+      setNotice(failure ?? "Photograph added.");
+      if (!failure) form.reset();
+      setPending(false);
+    }
     return (
       <>
         <Title kicker="Photos">Shared gallery</Title>
-        <p className="lede">Guests see one shared gallery when photographs are here.</p>
+        <p className="lede">One private gallery. Guests open the link and can add photographs and videos. No account.</p>
+        <form className="glass card fields" style={{ marginTop: "1rem", maxWidth: 560 }} onSubmit={(event) => void upload(event)}>
+          <label>Photograph or video<input name="file" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime" required /></label>
+          <button className="btn" type="submit" disabled={pending}>{pending ? "Uploading…" : "Add to the gallery"}</button>
+          <p className="fine">JPEG, PNG, WebP, MP4, or QuickTime. Photographs up to 15 MB and videos up to 100 MB go straight to the file store. Without that store, files stay under 4 MB.</p>
+          {notice ? <p className="fine">{notice}</p> : null}
+        </form>
+        <div className="actions" style={{ marginTop: "0.8rem" }}>
+          <button className="btn-text" type="button" onClick={() => void setGuestUpload(!guestUploadEnabled).then((failure) => setNotice(failure ?? (guestUploadEnabled ? "Guests can look, not upload." : "Guests can upload.")))}>
+            {guestUploadEnabled ? "Turn guest upload off" : "Turn guest upload on"}
+          </button>
+          {galleryUrl ? (
+            <button
+              className="btn-text"
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(galleryUrl).then(() => setNotice("Gallery link copied."))}
+            >
+              Copy gallery link
+            </button>
+          ) : null}
+        </div>
         {photos.length === 0 ? <p className="muted">No photographs yet.</p> : null}
         <div className="gallery">
           {photos.map((item) => (
             <figure key={item.id} className="glass">
-              <Image src={item.url} alt={item.title} width={960} height={540} />
-              <figcaption style={{ padding: "0.7rem 0.8rem" }}>{item.title}</figcaption>
+              {item.kind === "video" ? (
+                <video src={item.url} controls playsInline />
+              ) : item.url.startsWith("/photos/") ? (
+                <Image src={item.url} alt={item.title} width={960} height={540} />
+              ) : (
+                // Uploaded files are served from this app or from an unguessable store URL.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={item.url} alt={item.title} />
+              )}
+              <figcaption style={{ padding: "0.7rem 0.8rem" }}>
+                {item.title}
+                {item.url.startsWith("/photos/") ? null : (
+                  <button className="btn-text" type="button" onClick={() => void deletePhoto(item.id).then((failure) => setNotice(failure ?? "Photograph removed."))}>Remove</button>
+                )}
+              </figcaption>
             </figure>
           ))}
         </div>

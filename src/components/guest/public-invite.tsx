@@ -9,8 +9,9 @@ function countAtLeastZero(value: string) {
 }
 
 export function PublicRsvp({ token, maxPeople }: { token: string; maxPeople: number }) {
-  const [people, setPeople] = useState(Math.min(2, maxPeople));
-  const [veg, setVeg] = useState(1);
+  const start = Math.min(2, maxPeople);
+  const [people, setPeople] = useState(start);
+  const [veg, setVeg] = useState(start);
   const [nonVeg, setNonVeg] = useState(0);
   const [jain, setJain] = useState(0);
   const [sent, setSent] = useState(false);

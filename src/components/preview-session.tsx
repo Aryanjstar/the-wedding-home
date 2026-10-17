@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 
+import { sendGalleryFile } from "@/components/gallery-upload";
 import { civilDateInIndia, clockInIndia, instantInIndia } from "@/data/india-time";
 import { passwordProblem } from "@/data/password-rules";
 import {
@@ -32,6 +33,7 @@ type TaskRow = {
   status: "todo" | "doing" | "done";
   priority: "low" | "medium" | "high";
   who: string;
+  mine: boolean;
 };
 
 type ExpenseRow = {
@@ -51,15 +53,23 @@ type VendorRow = {
   cost: number | null;
 };
 
-type PhotoRow = { id: string; title: string; url: string };
+type PhotoRow = { id: string; title: string; url: string; kind?: "photo" | "video" };
 
 type Counts = {
   events: number;
   tasksDone: number;
   tasksTotal: number;
   households: number;
+  replies: number;
   expensesTotalInr: number;
   vendors: number;
+};
+
+type SiteState = {
+  slug: string;
+  published: boolean;
+  packId: string;
+  liveUrl: string;
 };
 
 type WorkspaceState = {
@@ -73,6 +83,11 @@ type WorkspaceState = {
   expenses: ExpenseRow[];
   vendors: VendorRow[];
   photos: PhotoRow[];
+  galleryUrl: string | null;
+  guestUploadEnabled: boolean;
+  directUpload: boolean;
+  uploadPrefix: string;
+  site: SiteState | null;
   counts: Counts;
   days: number | null;
 };
@@ -91,16 +106,21 @@ type PreviewContextValue = WorkspaceState & {
   revokeInvitation: (id: string) => Promise<string | null>;
   addEvent: (event: PreviewEvent) => Promise<boolean>;
   removeEvent: (id: string) => Promise<boolean>;
-  addHousehold: (input: { name: string; side: "bride" | "groom" | "other"; maxPeople: number; email?: string }) => Promise<string | null>;
+  addHousehold: (input: { name: string; side: "bride" | "groom" | "other"; maxPeople: number; email?: string; invitedEventIds?: string[] }) => Promise<string | null>;
   sendHouseholdEmail: (id: string) => Promise<string | null>;
-  addTask: (input: { title: string; priority: TaskRow["priority"] }) => Promise<string | null>;
+  addTask: (input: { title: string; priority: TaskRow["priority"]; assignToMe?: boolean }) => Promise<string | null>;
+  updateTask: (id: string, input: { status?: TaskRow["status"]; assignToMe?: boolean }) => Promise<string | null>;
+  uploadPhoto: (file: File) => Promise<string | null>;
+  deletePhoto: (id: string) => Promise<string | null>;
+  setGuestUpload: (enabled: boolean) => Promise<string | null>;
+  publishSite: (input: SiteState) => Promise<string | null>;
   addExpense: (input: { title: string; amountInr: number; spentOn: string; category: string }) => Promise<string | null>;
   addVendor: (input: { name: string; category: string; contactPerson: string; phone: string; agreedCostInr: number }) => Promise<string | null>;
   resetPassword: (token: string, password: string, confirm: string) => Promise<string | null>;
   requestReset: (email: string) => Promise<string | null>;
 };
 
-const emptyCounts: Counts = { events: 0, tasksDone: 0, tasksTotal: 0, households: 0, expensesTotalInr: 0, vendors: 0 };
+const emptyCounts: Counts = { events: 0, tasksDone: 0, tasksTotal: 0, households: 0, replies: 0, expensesTotalInr: 0, vendors: 0 };
 
 const emptyState: WorkspaceState = {
   person: null,
@@ -113,6 +133,11 @@ const emptyState: WorkspaceState = {
   expenses: [],
   vendors: [],
   photos: [],
+  galleryUrl: null,
+  guestUploadEnabled: true,
+  directUpload: false,
+  uploadPrefix: "",
+  site: null,
   counts: emptyCounts,
   days: null,
 };
@@ -130,6 +155,8 @@ function explain(body: { reason?: string; detail?: string } | null, fallback: st
   if (body?.reason === "DEPENDENCY_UNAVAILABLE") return body.detail || "The email did not go out. Try again in a moment.";
   if (body?.reason === "NO_EMAIL") return "Add an email address before sending.";
   if (body?.reason === "INVALID_TOKEN") return body.detail || "That link is no longer valid.";
+  if (body?.reason === "FILE_TOO_LARGE" || body?.reason === "UNSUPPORTED_FILE" || body?.reason === "UPLOADS_DISABLED") return body.detail || fallback;
+  if (body?.reason === "SLUG_TAKEN" || body?.reason === "SLUG_RESERVED" || body?.reason === "LIVE_URL" || body?.reason === "LIMIT_REACHED") return body.detail || fallback;
   return body?.detail || fallback;
 }
 
@@ -148,7 +175,11 @@ async function loadWorkspace(): Promise<WorkspaceState> {
   };
   const detailResponse = me.wedding ? await fetch("/api/wedding", { cache: "no-store" }) : null;
   const detail = detailResponse?.ok
-    ? await detailResponse.json() as { title: string | null; story: string | null }
+    ? await detailResponse.json() as {
+        title: string | null;
+        story: string | null;
+        site?: { slug: string | null; published: boolean; packId: string; liveUrl: string | null };
+      }
     : null;
   const wedding = me.wedding
     ? {
@@ -202,11 +233,13 @@ async function loadWorkspace(): Promise<WorkspaceState> {
     };
   });
 
-  const taskBody = taskResponse.ok ? await taskResponse.json() as { items: TaskRow[] } : { items: [] };
-  const tasks = (taskBody.items ?? []).map((item) => ({ ...item, who: (item as TaskRow & { assigneeName?: string | null }).assigneeName || "Open" }));
+  const taskBody = taskResponse.ok ? await taskResponse.json() as { items: Array<TaskRow & { assigneeName?: string | null }> } : { items: [] };
+  const tasks = (taskBody.items ?? []).map((item) => ({ ...item, who: item.assigneeName || "Open", mine: Boolean(item.mine) }));
   const expenseBody = expenseResponse.ok ? await expenseResponse.json() as { items: ExpenseRow[] } : { items: [] };
   const vendorBody = vendorResponse.ok ? await vendorResponse.json() as { items: Array<{ id: string; name: string; category: string; contactPerson: string | null; phone: string | null; agreedCostInr: number | null }> } : { items: [] };
-  const photoBody = photoResponse.ok ? await photoResponse.json() as { items: PhotoRow[] } : { items: [] };
+  const photoBody = photoResponse.ok ? await photoResponse.json() as { items: PhotoRow[]; url?: string; guestUploadEnabled?: boolean; directUpload?: boolean; uploadPrefix?: string } : { items: [] };
+  const rawSlug = detail?.site?.slug ?? "";
+  const reservedSlug = rawSlug === "aanya-and-kabir";
   const dashboardBody = dashboardResponse.ok ? await dashboardResponse.json() as { counts: Counts; countdown: { daysToGo: number } } : null;
   const memberBody = memberResponse && memberResponse.ok
     ? await memberResponse.json() as { members: Array<{ userId: string; name: string; email: string; role: Role }>; invitations: Array<{ id: string; email: string; role: Role }> }
@@ -230,7 +263,17 @@ async function loadWorkspace(): Promise<WorkspaceState> {
       cost: item.agreedCostInr,
     })),
     photos: (photoBody.items ?? []).filter((item) => item.url),
-    counts: dashboardBody?.counts ?? emptyCounts,
+    galleryUrl: photoBody.url ?? null,
+    guestUploadEnabled: photoBody.guestUploadEnabled !== false,
+    directUpload: photoBody.directUpload === true,
+    uploadPrefix: photoBody.uploadPrefix ?? "",
+    site: {
+      slug: reservedSlug ? "" : rawSlug,
+      published: Boolean(detail?.site?.published) && !reservedSlug,
+      packId: detail?.site?.packId || "classical",
+      liveUrl: detail?.site?.liveUrl ?? "",
+    },
+    counts: { ...emptyCounts, ...dashboardBody?.counts },
     days: dashboardBody?.countdown.daysToGo ?? null,
   };
 }
@@ -376,7 +419,7 @@ export function PreviewSessionProvider({ children }: { children: ReactNode }) {
         name: input.name,
         side: input.side,
         maxPeople: input.maxPeople,
-        invitedEventIds: state.events.map((event) => event.id),
+        invitedEventIds: input.invitedEventIds ?? state.events.map((event) => event.id),
         ...(email ? { email } : {}),
       });
       if (!response.ok) return explain(await readProblem(response), "Could not add that household.");
@@ -392,6 +435,47 @@ export function PreviewSessionProvider({ children }: { children: ReactNode }) {
     async addTask(input) {
       const response = await send("/api/tasks", "POST", input);
       if (!response.ok) return explain(await readProblem(response), "Could not add that task.");
+      await refresh();
+      return null;
+    },
+    async updateTask(id, input) {
+      const response = await send(`/api/tasks/${id}`, "PATCH", input);
+      if (!response.ok) return explain(await readProblem(response), "Could not update that task.");
+      await refresh();
+      return null;
+    },
+    async uploadPhoto(file) {
+      const failure = await sendGalleryFile(file, {
+        direct: state.directUpload,
+        prefix: state.uploadPrefix,
+        handleUrl: "/api/gallery/upload",
+        registerUrl: "/api/gallery/register",
+        fallbackUrl: "/api/gallery",
+      });
+      if (failure) return failure;
+      await refresh();
+      return null;
+    },
+    async deletePhoto(id) {
+      const response = await send(`/api/gallery/items/${id}`, "DELETE");
+      if (!response.ok) return explain(await readProblem(response), "Could not remove that photograph.");
+      await refresh();
+      return null;
+    },
+    async setGuestUpload(enabled) {
+      const response = await send("/api/gallery", "PATCH", { guestUploadEnabled: enabled });
+      if (!response.ok) return explain(await readProblem(response), "Could not change guest upload.");
+      await refresh();
+      return null;
+    },
+    async publishSite(input) {
+      const response = await send("/api/wedding/site", "PATCH", {
+        slug: input.slug,
+        published: input.published,
+        packId: input.packId,
+        ...(input.liveUrl ? { liveUrl: input.liveUrl } : {}),
+      });
+      if (!response.ok) return explain(await readProblem(response), "Could not save the guest site.");
       await refresh();
       return null;
     },

@@ -152,6 +152,15 @@ export function getAppEnv(): AppEnv {
   return cachedAppEnv;
 }
 
+/** Prefer the configured public URL. On Vercel, fall back to the deployment host when local is still set. */
+export function publicAppUrl(): string {
+  const configured = getAppEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  const local = configured.includes("localhost") || configured.includes("127.0.0.1");
+  const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  if (local && vercelHost) return `https://${vercelHost}`;
+  return configured;
+}
+
 export function getDatabaseEnv(): DatabaseEnv {
   cachedDatabaseEnv ??= parseDatabaseEnv(process.env);
   return cachedDatabaseEnv;

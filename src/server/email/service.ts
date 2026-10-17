@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getAppEnv, getEmailEnv } from "@/config/env";
+import { getEmailEnv, publicAppUrl } from "@/config/env";
 import { householdInvitationText, memberInvitationText, passwordResetText } from "@/server/email/messages";
 
 export class EmailDeliveryError extends Error {
@@ -48,7 +48,7 @@ export async function sendEmail(input: SendInput, fetchImpl: typeof fetch = fetc
 }
 
 function absoluteUrl(path: string) {
-  return new URL(path, getAppEnv().NEXT_PUBLIC_APP_URL).href;
+  return new URL(path, publicAppUrl()).href;
 }
 
 export async function sendMemberInvitation(input: {
