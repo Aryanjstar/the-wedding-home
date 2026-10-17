@@ -103,7 +103,7 @@ export async function geocodeFirst(queries: (string | null | undefined)[]): Prom
 
 /** What to ask for each kind of wedding vendor: names for Photon, categories for Nominatim. */
 export const vendorQueries: Record<string, { names: string[]; categories: string[] }> = {
-  photographer: { names: ["photography", "photo studio", "photographer", "studio"], categories: ["photographer", "photo shop"] },
+  photographer: { names: ["photography", "photo studio", "photographer", "photo films"], categories: ["photographer", "photo shop"] },
   videographer: { names: ["films", "video", "photography"], categories: ["photographer"] },
   venue: { names: ["marriage garden", "banquet", "resort", "lawn", "wedding venue", "palace"], categories: ["events venue", "conference centre"] },
   caterer: { names: ["caterers", "catering", "halwai"], categories: ["caterer"] },
