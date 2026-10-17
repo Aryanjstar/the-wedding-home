@@ -1,13 +1,8 @@
-import { createRequestId } from "@/server/http/request-id";
-import { json, toProblem } from "@/server/http/handle";
-import { shareHousehold } from "@/modules/home/service";
+import { shareHousehold } from "@/modules/guests/service";
+import { query, route } from "@/server/http/route";
 
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  const requestId = createRequestId();
-  try {
-    const { id } = await context.params;
-    return json(await shareHousehold(request, id), 200, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const GET = route<{ id: string }>((request, { id }) => {
+  const params = query(request);
+  const kind = params.get("kind");
+  return shareHousehold(request, id, kind === "please_rsvp" || kind === "see_you_soon" ? kind : "invite", params.get("eventId"));
+});

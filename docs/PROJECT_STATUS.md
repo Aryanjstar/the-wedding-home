@@ -1,6 +1,6 @@
 # The Wedding Home — Project Status
 
-**Last updated:** 2026-10-17
+**Last updated:** 2026-10-18
 
 This is the progress log. Read it before building, and update it in the same change when a major feature is added or materially changed. Product scope stays in `docs/PRD.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md`, and `docs/API.md`. This file does not override them.
 
@@ -15,6 +15,7 @@ The public site opens on **Plan the wedding**. The first screen asks for the bri
 | Family data in MongoDB | Complete — Atlas `wedding-home-dev` | 2026-10-14 |
 | Family workspace, gallery trial, published theme | Complete — checked locally | 2026-10-17 |
 | Vercel deployment | Live — the-wedding-home.vercel.app redeploys from main | 2026-10-17 |
+| Rebuilt family app, all seven slices, themed guest site with music | Complete — end to end, see milestone 5 | 2026-10-18 |
 
 ## 1. Application scaffold
 
@@ -125,9 +126,52 @@ The public site opens on **Plan the wedding**. The first screen asks for the bri
 - Nearby vendor search is still a Google Maps link, not Places.
 - Gallery video, albums, and a printed QR image are not in this trial.
 
+## 5. Rebuilt family app, all seven slices, themed guest site with music
+
+**Status:** Complete — end to end. Nearby vendor search waits on a valid Google key.
+
+**Recorded on:** 2026-10-18
+
+### Why
+
+The earlier screens saved some things and then crashed (`event.currentTarget` read after an `await`), mixed a fake in-browser preview store with real data, could not edit or delete most records, had an uneven layout (sidebar ending mid-page, oversized checkboxes, run-together rows), and gave real weddings a plain list instead of a themed site. Reminders, per-function RSVP, caterer totals, site content, per-function themes, vendor search, gallery albums, QR, and the e-card were missing.
+
+### Implemented
+
+- **Structure.** The single 1,100-line service is split into `src/modules/{access,events,guests,reminders,tasks,expenses,vendors,website,gallery}`; `home` keeps auth, account, wedding, members, and the dashboard. Every route handler is the same thin shape (`src/server/http/route.ts`). `weddingId` always comes from the membership. The in-browser preview store (`src/data/preview.ts`) and the 1,100-line `views.tsx` are gone.
+- **Family app.** A design system (`src/components/ui`, `src/styles/app.css`): a full-height maroon sidebar with the couple, the date, and a countdown; grouped navigation from the page map; Admin-only items hidden for a Manager; drawers to add and edit; toasts; confirm dialogs; a password eye on every password field; a ₹ input with Indian grouping and lakh/crore hints; a phone menu.
+- **Dashboard.** Countdown to the primary function (or the wedding date) with the muhurat, the next function, replies in, people coming, tasks done, rupees spent, functions, tasks due in two weeks, spend by category, and a setup checklist.
+- **Events.** Add, edit, delete with a confirmation when households are invited. Kind shortcuts (Roka to Reception, Custom), end time, primary date and muhurat, venue, address, city, what it is, what to wear, how to reach, parking. A keyless Google map below the venue and Open in Google Maps. A city alone is not a venue, so it gets no map. Per function: invited, silent, no, yes, and veg / non-veg / Jain totals.
+- **Guests.** Households with side, max people (stepper), mobile (normalised to +91), email, notes, and invited functions. Edit and delete; removing a function someone answered asks first. Per-function reply chips. WhatsApp opens the household's own chat when there is a phone, else the chat picker, with that household's link. Copy link, email the invitation, and download a WhatsApp e-card PNG (rendered on demand). Panels on the same page: Reminders and Caterer counts.
+- **Reminders (slice 3).** `email_jobs` as in DATABASE §5.14: please-RSVP 1 month / 1 week / 1 day before that function, see-you-soon 1 day before, a 36-hour window, households added after a slot skip it, unique dedupe key, atomic claim, 3 attempts. Send-now to everyone silent (or everyone coming) for a function, one household by email, or WhatsApp reminder text. A daily Vercel Cron calls `/api/internal/reminders` with `CRON_SECRET`. `scripts/run-reminders.ts` runs it by hand, optionally at a pretend time.
+- **Tasks.** To do / doing / done board, quick add, tick to finish, assignee (any organiser, Manager included), priority, due date, function, notes, delete. Filters: All, Mine, Unassigned, Done, and by function. Removing a member unassigns their tasks.
+- **Expenses.** Spend log in whole rupees with category, function, a saved vendor or a free-text payee, notes; edit and delete; total and category breakdown; filters. Not a budget.
+- **Vendors.** My vendors with contact, phone, email, website, address, agreed price, functions, notes, and how much has been paid to them from the spend log. Find nearby runs Google Places (New) Text Search on the server near a function venue or the city, shows rating, distance, and contact, and saves through `POST /api/vendors` with `place` (the server refetches the place). Deleting a vendor keeps the name on its expenses.
+- **Photos & videos.** Stable gallery link and an on-demand QR (PNG or SVG), gallery open/closed, guest upload on/off, multi-file upload with an album per function, album filter, hide/show, download, delete. Guests see albums, upload from the phone, and a calm closed page when the gallery is off.
+- **Website & themes (Admin).** Four packs, each with its own music; per-function world (Haldi, Mehendi, Sangeet, Wedding, Reception, Roka/engagement), music, and accent colour with Listen; slug; publish / unpublish; YouTube or Vimeo Live; two helplines; meet the families; stay; blessings or gift note; aashirwad wall.
+- **Guest site.** `/w/{slug}` home (countdown, story, function cards in each world, families, stay, helplines, live, aashirwad) and `/w/{slug}/{eventId}` function pages in their own colour, Devanagari script, motif, and motion, with the venue map. `/i/{token}` personal invitation: only the invited functions, each in its world, attending count only, and RSVP per function with yes/no, people, and veg / non-veg / Jain steppers that must add up. All-or-nothing validation, a second reply replaces the first. Preview as guest opens the same site and a test invitation that never saves.
+- **Music.** `src/components/guest/sound-engine.ts` synthesises original phrases in the browser (rights-cleared by construction): Bilawal with dhol, Bhimpalasi on santoor with dadra, Yaman on sitar with tabla and ghungroo, Shankarabharanam as nadaswaram with temple bells, tanpura, Bhairavi shehnai, Des sitar, Kafi santoor, and dhol-bhangra. It starts muted. Once a guest turns it on, the choice is remembered and the music crossfades as they move between functions (and as they scroll through the invitation).
+- **Account.** Change name, change password (signs out other devices), forgot-password link, leave the wedding (the last Admin cannot), sign out.
+
+### Validation
+
+- `npm test`: 41 unit tests, including the new rules in `src/modules/rules.test.ts` (phones, RSVP rules, the reminder clock, embeds, rupees, theme isolation, return paths).
+- `npm run typecheck`, `npm run lint`, and `next build` pass.
+- `npm run e2e` (Playwright, `tests/e2e/journey.spec.ts`, against the Atlas dev database): 15 steps pass as an Admin, a Manager, a second family, and a guest on a phone — plan a wedding, four functions with maps and a muhurat, households with WhatsApp links and the e-card, a real invitation email, a guest RSVP per function that refuses a diet that does not add up and more people than allowed, caterer totals, a real send-now reminder through Resend, delete confirmation, tasks, vendors and expenses in rupees, photo upload with albums, hide, QR, guest upload and closing the gallery, pack and per-function music, publish and unpublish, the public site with sound carried across function pages, the preview invitation, a Manager joining by invitation with the right pages and 403 on Admin APIs, promoting and demoting, the last Admin, another wedding getting 404 on this one, one wedding per account, password change with the eye, a wrong password, reset request, and no horizontal overflow at 390 px.
+- Scheduled reminders run at a pretend time one week before a Sangeet: 6 planned and 6 delivered by Resend; a second run planned 0.
+
+### Boundaries and deviations
+
+- **Nearby search:** Google answers "API key not valid" for the `GOOGLE_PLACES_API_KEY` in `.env.local`. The page then says discovery is unavailable and offers Open in Google Maps. Set a key with Places API (New) enabled, locally and on Vercel.
+- **Maps:** the venue map is the keyless Google Maps embed from the venue, address, and city. API.md asks for latitude and longitude from place autocomplete; that waits for a browser Maps key.
+- **Files:** still Vercel Blob (when `BLOB_READ_WRITE_TOKEN` is set) or MongoDB under 4 MB, not S3 with upload intents. The gallery list is one response of up to 2,000 items, not the cursor list in API §7.12, and download goes through the file route rather than a signed URL.
+- **Reminder queue response** returns `silent` and `yes` lists instead of one paged `items` list.
+- **Cron** is daily (Vercel Hobby). The 36-hour window covers it.
+- The designed `/w/aanya-and-kabir` sample keeps its own pages; its function pages now use the new music engine. Seeded dev organisers still sign in with the preview password.
+
 ## Upcoming development
 
-Add the Resend DNS records for `rnjsworld.in`, then sign in to Vercel and deploy. Production uses the database name `wedding-home` on the same Atlas cluster. A map pin from a real place, reminder mail, and gallery video are still open.
+Set a working Google Places key. Then a map pin from real place autocomplete, S3 with upload intents for very large galleries, and a paged gallery list.
 
 ## Updating this document
 

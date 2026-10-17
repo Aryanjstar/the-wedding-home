@@ -6,15 +6,20 @@ Live: [the-wedding-home.vercel.app](https://the-wedding-home.vercel.app)
 
 ## What it does
 
-- A wedding with bride, groom, date, and city, and a countdown.
-- Functions from Haldi to reception, each with a venue that opens in Google Maps.
-- Household invitations by WhatsApp or email, and an RSVP with veg, non-veg, and Jain.
-- Shared tasks, a spend log in rupees, and the people you hired.
-- A published guest site in Traditional, Classical, Art, or Choreography, with an optional YouTube or Vimeo link.
-- A private gallery for photographs and videos. Guests use one link and do not make an account.
-- Mail leaves as `The Wedding Home <onboarding@aryanjaiswal.in>`.
+**For the family (sign in, Admin or Manager):**
 
-People who organise sign in. After that, the wedding shows them what they can do. Guests never see a sign-in.
+- A dashboard with the countdown, the muhurat, the next function, replies, tasks due, and rupees spent.
+- Functions from Roka to Reception, each with a venue map that opens Google Maps, and veg / non-veg / Jain totals for the caterer.
+- Households, not individuals. Each gets a private link to share on WhatsApp (their own chat when you have the number), by email, or as an e-card picture.
+- Reminders 1 month, 1 week, and 1 day before each function, plus "send now" to everyone still silent.
+- Tasks with a person, a date, and a priority. A spend log in rupees (not a budget). Vendors with the agreed price, and a nearby search.
+- One shared photo and video gallery with a stable QR, albums per function, hide, and download.
+- A guest website in Traditional, Classical, Art, or Choreography, where each function gets its own colours, motif, and music. YouTube or Vimeo live on the site.
+- Admins invite family, change roles, and publish the website. The wedding always keeps an Admin.
+
+**For guests (no account, ever):** the wedding website, their personal invitation with a per-function RSVP, the maps, the helplines, live, and the gallery. Music starts muted; one tap turns it on and it follows them from Haldi to Sangeet.
+
+Mail leaves as `The Wedding Home <onboarding@aryanjaiswal.in>`.
 
 ## Docs
 
@@ -42,10 +47,17 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000).
 
 ```bash
-npm test
+npm test          # unit tests
 npm run typecheck
 npm run lint
+npm run e2e       # the whole journey in Chrome, against `npm run dev` and the dev database
 ```
+
+`npm run e2e` creates real accounts and sends real mail to plus-addresses of `E2E_INBOX` (default `aryanjstar3@gmail.com`). Set `E2E_BASE_URL` to run it against another deployment.
+
+Reminders go out from a daily Vercel Cron (`vercel.json`) that calls `/api/internal/reminders` with `CRON_SECRET`. To run them by hand: `npx tsx --env-file=.env.local --conditions=react-server scripts/run-reminders.ts`.
+
+After a schema change, sync indexes with `npx tsx --env-file=.env.local --conditions=react-server scripts/db-indexes.ts`.
 
 `MONGODB_URI` must use the database `wedding-home-dev` locally. Production on Vercel uses `wedding-home`. A push to `main` redeploys [the-wedding-home.vercel.app](https://the-wedding-home.vercel.app).
 

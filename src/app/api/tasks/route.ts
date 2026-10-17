@@ -1,22 +1,6 @@
-import { createRequestId } from "@/server/http/request-id";
-import { assertSameOrigin, json, readJson, toProblem } from "@/server/http/handle";
-import { createTask, listTasks } from "@/modules/home/service";
+import { createTask, listTasks } from "@/modules/tasks/service";
+import { route } from "@/server/http/route";
 
-export async function GET(request: Request) {
-  const requestId = createRequestId();
-  try {
-    return json(await listTasks(request), 200, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const GET = route((request) => listTasks(request));
 
-export async function POST(request: Request) {
-  const requestId = createRequestId();
-  try {
-    assertSameOrigin(request);
-    return json(await createTask(request, await readJson(request)), 201, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const POST = route((request, _p, body) => createTask(request, body), { status: 201 });

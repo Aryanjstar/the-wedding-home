@@ -1,22 +1,6 @@
-import { createRequestId } from "@/server/http/request-id";
-import { assertSameOrigin, json, readJson, toProblem } from "@/server/http/handle";
-import { createHousehold, listHouseholds } from "@/modules/home/service";
+import { createHousehold, listHouseholds } from "@/modules/guests/service";
+import { route } from "@/server/http/route";
 
-export async function GET(request: Request) {
-  const requestId = createRequestId();
-  try {
-    return json(await listHouseholds(request), 200, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const GET = route((request) => listHouseholds(request));
 
-export async function POST(request: Request) {
-  const requestId = createRequestId();
-  try {
-    assertSameOrigin(request);
-    return json(await createHousehold(request, await readJson(request)), 201, requestId);
-  } catch (error) {
-    return toProblem(error, requestId);
-  }
-}
+export const POST = route((request, _p, body) => createHousehold(request, body), { status: 201 });

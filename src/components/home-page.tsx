@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Mark } from "@/components/mark";
-import { usePreview } from "@/components/preview-session";
+import { useSession } from "@/components/session";
 import { functions } from "@/data/sample";
 import { themePacks, type ThemePackId } from "@/data/theme-packs";
 
@@ -19,7 +19,7 @@ const features = [
 ];
 
 export function HomePage({ days }: { days: number }) {
-  const { person, wedding, signOut } = usePreview();
+  const { person, wedding, signOut } = useSession();
   const [openNav, setOpenNav] = useState(false);
   const [packId, setPackId] = useState<ThemePackId>("traditional");
   const pack = themePacks[packId];

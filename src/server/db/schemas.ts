@@ -10,6 +10,7 @@ import type {
   MembershipDoc,
   PasswordResetDoc,
   MediaDoc,
+  EmailJobDoc,
   RateLimitDoc,
   RsvpDoc,
   SessionDoc,
@@ -94,6 +95,20 @@ const weddingSchema = plainSchema(
       publishedAt: Date,
       theme: { packId: { type: String, default: "classical" } },
       liveUrl: String,
+      stay: String,
+      helplines: {
+        type: [{ _id: false, side: { type: String, enum: ["bride", "groom"] }, name: String, phone: String }],
+        default: undefined,
+      },
+      families: {
+        bride: { heading: String, blurb: String },
+        groom: { heading: String, blurb: String },
+      },
+      aashirwad: {
+        type: [{ author: String, relation: String, message: String, createdAt: Date }],
+        default: undefined,
+      },
+      giftNote: String,
     },
     gallery: {
       token: { type: String, required: true },
@@ -173,6 +188,7 @@ const eventSchema = plainSchema(
     dressNote: String,
     howToReach: String,
     parking: String,
+    themeOverride: { world: String, accent: String, music: String },
     schemaVersion: { type: Number, required: true, default: 1 },
   },
   options,
@@ -203,6 +219,7 @@ const householdSchema = plainSchema(
 );
 householdSchema.index({ inviteToken: 1 }, { unique: true });
 householdSchema.index({ weddingId: 1, nameSearch: 1 });
+householdSchema.index({ weddingId: 1, invitedEventIds: 1 });
 
 const rsvpSchema = plainSchema(
   {
@@ -241,6 +258,7 @@ const taskSchema = plainSchema(
   options,
 );
 taskSchema.index({ weddingId: 1, status: 1, dueOn: 1 });
+taskSchema.index({ weddingId: 1, assigneeId: 1, status: 1 });
 
 const expenseSchema = plainSchema(
   {
@@ -250,6 +268,7 @@ const expenseSchema = plainSchema(
     spentOn: { type: String, required: true },
     category: { type: String, required: true },
     eventId: Schema.Types.ObjectId,
+    vendorId: Schema.Types.ObjectId,
     vendorLabel: String,
     notes: String,
     createdBy: { type: Schema.Types.ObjectId, required: true },
@@ -258,6 +277,8 @@ const expenseSchema = plainSchema(
   options,
 );
 expenseSchema.index({ weddingId: 1, spentOn: -1, _id: -1 });
+expenseSchema.index({ weddingId: 1, category: 1 });
+expenseSchema.index({ weddingId: 1, vendorId: 1 });
 
 const vendorSchema = plainSchema(
   {
@@ -267,8 +288,12 @@ const vendorSchema = plainSchema(
     contactPerson: String,
     phone: String,
     email: String,
+    website: String,
+    address: String,
     agreedCostInr: Number,
+    eventIds: { type: [Schema.Types.ObjectId], default: undefined },
     notes: String,
+    place: { googlePlaceId: String, rating: Number },
     source: { type: String, required: true, enum: ["manual", "places"], default: "manual" },
     createdBy: { type: Schema.Types.ObjectId, required: true },
     schemaVersion: { type: Number, required: true, default: 1 },
@@ -276,6 +301,10 @@ const vendorSchema = plainSchema(
   options,
 );
 vendorSchema.index({ weddingId: 1, category: 1 });
+vendorSchema.index(
+  { weddingId: 1, "place.googlePlaceId": 1 },
+  { unique: true, partialFilterExpression: { "place.googlePlaceId": { $type: "string" } } },
+);
 
 const gallerySchema = plainSchema(
   {
@@ -311,6 +340,32 @@ const mediaSchema = plainSchema(
 );
 mediaSchema.index({ storageKey: 1 }, { unique: true });
 
+const emailJobSchema = plainSchema(
+  {
+    weddingId: { type: Schema.Types.ObjectId, required: true },
+    kind: { type: String, required: true, enum: ["please_rsvp", "see_you_soon"] },
+    origin: { type: String, required: true, enum: ["scheduled", "send_now"] },
+    householdId: { type: Schema.Types.ObjectId, required: true },
+    eventId: { type: Schema.Types.ObjectId, required: true },
+    dedupeKey: { type: String, required: true },
+    batchId: Schema.Types.ObjectId,
+    status: { type: String, required: true, enum: ["PENDING", "PROCESSING", "SENT", "FAILED", "SKIPPED"] },
+    runAfter: { type: Date, required: true },
+    attempts: { type: Number, required: true, default: 0 },
+    lockedAt: Date,
+    lastError: String,
+    sentAt: Date,
+    expireAt: Date,
+    schemaVersion: { type: Number, required: true, default: 1 },
+  },
+  options,
+);
+emailJobSchema.index({ dedupeKey: 1 }, { unique: true });
+emailJobSchema.index({ status: 1, runAfter: 1 });
+emailJobSchema.index({ weddingId: 1, batchId: 1, status: 1 });
+emailJobSchema.index({ householdId: 1, status: 1 });
+emailJobSchema.index({ expireAt: 1 }, { expireAfterSeconds: 0 });
+
 const rateLimitSchema = plainSchema(
   {
     _id: { type: String, required: true },
@@ -335,6 +390,7 @@ export const ExpenseModel = model<ExpenseDoc>("Expense", "expenses", expenseSche
 export const VendorModel = model<VendorDoc>("Vendor", "vendors", vendorSchema);
 export const GalleryModel = model<GalleryDoc>("GalleryItem", "gallery_items", gallerySchema);
 export const MediaModel = model<MediaDoc>("MediaObject", "media_objects", mediaSchema);
+export const EmailJobModel = model<EmailJobDoc>("EmailJob", "email_jobs", emailJobSchema);
 export const RateLimitModel = model<RateLimitDoc>("RateLimit", "rate_limits", rateLimitSchema);
 
 export const collectionModels = [
@@ -352,5 +408,6 @@ export const collectionModels = [
   VendorModel,
   GalleryModel,
   MediaModel,
+  EmailJobModel,
   RateLimitModel,
 ] as unknown as Model<unknown>[];

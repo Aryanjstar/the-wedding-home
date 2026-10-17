@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 
-import { daysUntilWedding } from "@/data/sample";
-import { Dashboard } from "@/components/workspace/views";
+import { DashboardPage } from "@/components/workspace/dashboard";
 
 export const metadata: Metadata = { title: "Dashboard · The Wedding Home" };
 
-export default function DashboardPage() {
-  return <Dashboard days={daysUntilWedding(new Date())} />;
+export default function Page() {
+  return <DashboardPage />;
 }

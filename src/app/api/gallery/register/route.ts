@@ -1,5 +1,5 @@
 import { registerUploadedBlob } from "@/modules/gallery/direct";
-import { requireMember } from "@/modules/home/service";
+import { requireMember } from "@/modules/access";
 import { assertSameOrigin, json, readJson, toProblem } from "@/server/http/handle";
 import { createRequestId } from "@/server/http/request-id";
 

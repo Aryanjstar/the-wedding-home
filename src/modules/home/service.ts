@@ -3,13 +3,13 @@ import "server-only";
 import mongoose from "mongoose";
 import { z } from "zod";
 
-import { publicAppUrl } from "@/config/env";
 import { daysUntilCivilDate } from "@/data/india-time";
 import { passwordProblem } from "@/data/password-rules";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
+import { emailField, idOf, isDuplicate, membershipFor, objectId, requireAdmin, requireMember, requireUser } from "@/modules/access";
 import { randomToken, tokenHash, tokenHashQuery } from "@/server/auth/session";
 import { connectToDatabase } from "@/server/db/connection";
-import { EmailDeliveryError, sendHouseholdInvitation, sendMemberInvitation, sendPasswordReset } from "@/server/email/service";
+import { EmailDeliveryError, sendMemberInvitation, sendPasswordReset } from "@/server/email/service";
 import {
   EventModel,
   ExpenseModel,
@@ -29,59 +29,13 @@ import { ServiceError, sessionTokenFrom } from "@/server/http/handle";
 import { clientIp, consumeRateLimit } from "@/server/http/rate-limit";
 
 const DAY = 86_400_000;
-const emailField = z.string().trim().toLowerCase().pipe(z.email());
-const objectId = z.string().regex(/^[a-f0-9]{24}$/i);
-
-const KINDS = ["roka", "engagement", "mehendi", "haldi", "sangeet", "cocktail", "wedding", "reception", "custom"] as const;
-
-export function kindFromTitle(title: string): (typeof KINDS)[number] {
-  const key = title.trim().toLowerCase();
-  return (KINDS as readonly string[]).includes(key) ? (key as (typeof KINDS)[number]) : "custom";
-}
 
 async function db() {
   await connectToDatabase();
 }
 
-function idOf(value: unknown): string {
-  return String(value);
-}
-
-export async function currentUser(request: Request) {
-  await db();
-  const token = sessionTokenFrom(request);
-  if (!token) return null;
-  const session = await SessionModel.findOne({ tokenHash: { $in: tokenHashQuery(token) }, expiresAt: { $gt: new Date() } });
-  if (!session) return null;
-  const user = await UserModel.findById(session.userId);
-  if (!user) return null;
-  return user;
-}
-
-async function requireUser(request: Request) {
-  const user = await currentUser(request);
-  if (!user) throw new ServiceError(401, "UNAUTHENTICATED", "NO_SESSION", "Sign in to continue.");
-  return user;
-}
-
-async function membershipFor(userId: mongoose.Types.ObjectId) {
-  return MembershipModel.findOne({ userId });
-}
-
-export async function requireMember(request: Request) {
-  const user = await requireUser(request);
-  const membership = await membershipFor(user._id);
-  if (!membership) throw new ServiceError(403, "FORBIDDEN", "NO_WEDDING", "Create the wedding first.");
-  return { user, membership };
-}
-
-export async function requireAdmin(request: Request) {
-  const context = await requireMember(request);
-  if (context.membership.role !== "admin") {
-    throw new ServiceError(403, "FORBIDDEN", "NOT_ADMIN", "Only an Admin can do that.");
-  }
-  return context;
-}
+export { currentUser, requireAdmin, requireMember } from "@/modules/access";
+export { kindFromTitle } from "@/modules/events/service";
 
 async function meFor(user: { _id: mongoose.Types.ObjectId; name: string; email: string }) {
   const membership = await membershipFor(user._id);
@@ -340,127 +294,7 @@ export async function readWedding(request: Request) {
     city: wedding.city,
     cover: null,
     updatedAt: wedding.updatedAt,
-    site: {
-      slug: wedding.site?.slug ?? null,
-      published: Boolean(wedding.site?.published),
-      packId: wedding.site?.theme?.packId ?? "classical",
-      liveUrl: wedding.site?.liveUrl ?? null,
-    },
   };
-}
-
-function mapsQuery(venue: { name?: string | null; address?: string | null; city?: string | null } | null | undefined) {
-  if (!venue) return null;
-  const query = [venue.name, venue.address, venue.city].filter(Boolean).join(", ");
-  if (!query) return null;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-}
-
-function presentEvent(event: {
-  _id: unknown;
-  kind: string;
-  title: string;
-  startsAt: Date;
-  endsAt?: Date | null;
-  isPrimary: boolean;
-  muhuratAt?: Date | null;
-  venue?: { name?: string | null; address?: string | null; city?: string | null } | null;
-  description?: string | null;
-}) {
-  const venue = event.venue?.name || event.venue?.address || event.venue?.city ? event.venue : null;
-  return {
-    id: idOf(event._id),
-    kind: event.kind,
-    title: event.title,
-    startsAt: event.startsAt.toISOString(),
-    endsAt: event.endsAt ? event.endsAt.toISOString() : null,
-    isPrimary: event.isPrimary,
-    muhuratAt: event.muhuratAt ? event.muhuratAt.toISOString() : null,
-    venue: venue
-      ? {
-          name: venue.name ?? null,
-          address: venue.address ?? null,
-          city: venue.city ?? null,
-          mapsUrl: mapsQuery(venue),
-        }
-      : null,
-    description: event.description ?? null,
-  };
-}
-
-export async function listEvents(request: Request) {
-  const { membership } = await requireMember(request);
-  const events = await EventModel.find({ weddingId: membership.weddingId }).sort({ startsAt: 1 });
-  return { items: events.map((event) => presentEvent(event)) };
-}
-
-const iso = z.string().refine((value) => !Number.isNaN(Date.parse(value)), "Use a date and time.");
-
-const eventSchema = z.object({
-  kind: z.enum(KINDS).optional(),
-  title: z.string().trim().min(1).max(120),
-  startsAt: iso,
-  isPrimary: z.boolean().optional(),
-  muhuratAt: iso.nullable().optional(),
-  venue: z.object({
-    name: z.string().trim().max(120).optional(),
-    address: z.string().trim().max(300).optional(),
-    city: z.string().trim().max(80).optional(),
-  }).strict().optional(),
-  description: z.string().trim().max(600).optional(),
-}).strict();
-
-export async function createEvent(request: Request, body: unknown) {
-  const { user, membership } = await requireMember(request);
-  const input = eventSchema.parse(body);
-  const count = await EventModel.countDocuments({ weddingId: membership.weddingId });
-  if (count >= 30) throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This wedding already has 30 functions.");
-  const isPrimary = Boolean(input.isPrimary);
-  if (input.muhuratAt && !isPrimary) {
-    throw new ServiceError(400, "VALIDATION_ERROR", "MUHURAT_NOT_PRIMARY", "Muhurat belongs on the primary function.");
-  }
-
-  const venue = input.venue && (input.venue.name || input.venue.address || input.venue.city) ? input.venue : undefined;
-  const mongoSession = await mongoose.startSession();
-  let createdId = "";
-  try {
-    await mongoSession.withTransaction(async () => {
-      if (isPrimary) {
-        await EventModel.updateMany({ weddingId: membership.weddingId, isPrimary: true }, { isPrimary: false }, { session: mongoSession });
-      }
-      const [event] = await EventModel.create(
-        [{
-          weddingId: membership.weddingId,
-          kind: input.kind ?? kindFromTitle(input.title),
-          title: input.title,
-          startsAt: new Date(input.startsAt),
-          isPrimary,
-          muhuratAt: input.muhuratAt ? new Date(input.muhuratAt) : undefined,
-          venue,
-          description: input.description,
-          schemaVersion: 1,
-        }],
-        { session: mongoSession },
-      );
-      createdId = idOf(event._id);
-    });
-  } finally {
-    await mongoSession.endSession();
-  }
-
-  const event = await EventModel.findById(createdId);
-  if (!event) throw new ServiceError(500, "INTERNAL_ERROR", "EVENT_MISSING", "The function was not saved.");
-  void user;
-  return presentEvent(event);
-}
-
-export async function deleteEvent(request: Request, eventId: string) {
-  const { membership } = await requireMember(request);
-  if (!objectId.safeParse(eventId).success) {
-    throw new ServiceError(400, "VALIDATION_ERROR", "INVALID_ID", "That function was not found.");
-  }
-  const removed = await EventModel.findOneAndDelete({ _id: eventId, weddingId: membership.weddingId });
-  if (!removed) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That function was not found.");
 }
 
 export async function listMembers(request: Request) {
@@ -708,7 +542,8 @@ export async function setMemberRole(request: Request, userId: string, body: unkn
 
 export async function removeMember(request: Request, userId: string) {
   const { user, membership } = await requireAdmin(request);
-  if (idOf(user._id) === userId) throw new ServiceError(409, "CONFLICT", "LAST_ADMIN", "Stay on the wedding, or ask another Admin.");
+  if (!objectId.safeParse(userId).success) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That person was not found.");
+  if (idOf(user._id) === userId) throw new ServiceError(409, "CONFLICT", "SELF_REMOVE", "Use “Leave this wedding” on Account to leave.");
   const target = await MembershipModel.findOne({ weddingId: membership.weddingId, userId });
   if (!target) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That person was not found.");
 
@@ -728,376 +563,136 @@ export async function removeMember(request: Request, userId: string) {
   } finally {
     await mongoSession.endSession();
   }
+  await TaskModel.updateMany({ weddingId: membership.weddingId, assigneeId: target.userId }, { $unset: { assigneeId: "" } });
+}
+
+
+const meSchema = z.object({ name: z.string().trim().min(1).max(100) }).strict();
+
+export async function updateMe(request: Request, body: unknown) {
+  const user = await requireUser(request);
+  const input = meSchema.parse(body);
+  await UserModel.updateOne({ _id: user._id }, { $set: { name: input.name } });
+  return meFor({ _id: user._id, name: input.name, email: user.email });
+}
+
+const passwordSchema = z.object({
+  currentPassword: z.string().min(1).max(200),
+  newPassword: z.string().min(10).max(128),
+}).strict();
+
+export async function changePassword(request: Request, body: unknown) {
+  const user = await requireUser(request);
+  const input = passwordSchema.parse(body);
+  await consumeRateLimit("auth", clientIp(request), 20, 15 * 60 * 1000);
+  if (!(await verifyPassword(input.currentPassword, user.passwordHash))) {
+    throw new ServiceError(400, "VALIDATION_ERROR", "WRONG_PASSWORD", "Your current password is not right.", { path: "currentPassword" });
+  }
+  const weak = passwordProblem(input.newPassword);
+  if (weak) throw new ServiceError(400, "VALIDATION_ERROR", "WEAK_PASSWORD", weak, { path: "newPassword" });
+  await UserModel.updateOne({ _id: user._id }, { $set: { passwordHash: await hashPassword(input.newPassword), passwordChangedAt: new Date() } });
+  const token = sessionTokenFrom(request);
+  const keep = token ? tokenHashQuery(token) : [];
+  await SessionModel.deleteMany({ userId: user._id, tokenHash: { $nin: keep } });
+}
+
+export async function leaveWedding(request: Request) {
+  const { user, membership } = await requireMember(request);
+  const mongoSession = await mongoose.startSession();
+  try {
+    await mongoSession.withTransaction(async () => {
+      if (membership.role === "admin") {
+        const updated = await WeddingModel.updateOne(
+          { _id: membership.weddingId, adminCount: { $gt: 1 } },
+          { $inc: { adminCount: -1 } },
+          { session: mongoSession },
+        );
+        if (updated.matchedCount === 0) throw new ServiceError(409, "CONFLICT", "LAST_ADMIN", "Make someone else an Admin before you leave.");
+      }
+      await MembershipModel.deleteOne({ _id: membership._id }, { session: mongoSession });
+    });
+  } finally {
+    await mongoSession.endSession();
+  }
+  await TaskModel.updateMany({ weddingId: membership.weddingId, assigneeId: user._id }, { $unset: { assigneeId: "" } });
 }
 
 export async function dashboard(request: Request) {
-  const { membership } = await requireMember(request);
-  const wedding = await WeddingModel.findById(membership.weddingId);
+  const { user, membership } = await requireMember(request);
+  const weddingId = membership.weddingId;
+  const wedding = await WeddingModel.findById(weddingId);
   if (!wedding) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That wedding was not found.");
-  const [events, tasks, households, expenses, vendors] = await Promise.all([
-    EventModel.find({ weddingId: wedding._id }).sort({ startsAt: 1 }),
-    TaskModel.find({ weddingId: wedding._id }),
-    HouseholdModel.countDocuments({ weddingId: wedding._id }),
-    ExpenseModel.find({ weddingId: wedding._id }),
-    VendorModel.countDocuments({ weddingId: wedding._id }),
+  const now = new Date();
+  const [events, tasks, households, answered, attending, expenses, vendors, members, gallery] = await Promise.all([
+    EventModel.find({ weddingId }).sort({ startsAt: 1 }),
+    TaskModel.find({ weddingId }),
+    HouseholdModel.countDocuments({ weddingId }),
+    RsvpModel.distinct("householdId", { weddingId }),
+    RsvpModel.aggregate<{ _id: null; people: number }>([
+      { $match: { weddingId, status: "yes" } },
+      { $group: { _id: "$householdId", people: { $max: "$attendingCount" } } },
+      { $group: { _id: null, people: { $sum: "$people" } } },
+    ]),
+    ExpenseModel.aggregate<{ _id: string; total: number }>([
+      { $match: { weddingId } },
+      { $group: { _id: "$category", total: { $sum: "$amountInr" } } },
+      { $sort: { total: -1 } },
+    ]),
+    VendorModel.countDocuments({ weddingId }),
+    MembershipModel.countDocuments({ weddingId }),
+    GalleryModel.countDocuments({ weddingId, hidden: false }),
   ]);
   const primary = events.find((event) => event.isPrimary);
-  const date = primary ? primary.startsAt.toISOString().slice(0, 10) : wedding.weddingDate;
-  const civil = primary ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(primary.startsAt) : wedding.weddingDate;
-  const now = new Date();
-  const next = events.find((event) => event.startsAt.getTime() >= now.getTime());
+  const civil = primary
+    ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(primary.startsAt)
+    : wedding.weddingDate;
+  const next = events.find((event) => event.startsAt.getTime() >= now.getTime() - 6 * 60 * 60 * 1000);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  const inTwoWeeks = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(now.getTime() + 14 * DAY));
+  const open = tasks.filter((task) => task.status !== "done");
+  const nearing = open
+    .filter((task) => task.dueOn && task.dueOn <= inTwoWeeks)
+    .sort((a, b) => (a.dueOn ?? "").localeCompare(b.dueOn ?? ""))
+    .slice(0, 6);
+  const assignees = await UserModel.find({ _id: { $in: nearing.map((task) => task.assigneeId).filter(Boolean) } }, { name: 1 });
+  const names = new Map(assignees.map((person) => [idOf(person._id), person.name]));
+  const site = wedding.site;
   return {
-    wedding: { brideName: wedding.brideName, groomName: wedding.groomName, title: wedding.title ?? null, city: wedding.city },
+    wedding: { brideName: wedding.brideName, groomName: wedding.groomName, title: wedding.title ?? null, city: wedding.city, weddingDate: wedding.weddingDate },
     countdown: {
       date: civil,
       daysToGo: daysUntilCivilDate(civil, now),
       muhuratAt: primary?.muhuratAt ? primary.muhuratAt.toISOString() : null,
       source: primary ? "primary_event" : "wedding_date",
     },
-    nextEvent: next ? { id: idOf(next._id), title: next.title, startsAt: next.startsAt.toISOString() } : null,
+    nextEvent: next
+      ? { id: idOf(next._id), title: next.title, kind: next.kind, startsAt: next.startsAt.toISOString(), venue: [next.venue?.name, next.venue?.city].filter(Boolean).join(", ") || null }
+      : null,
+    events: events.map((event) => ({ id: idOf(event._id), title: event.title, kind: event.kind, startsAt: event.startsAt.toISOString(), isPrimary: event.isPrimary })),
     counts: {
       events: events.length,
-      tasksDone: tasks.filter((task) => task.status === "done").length,
+      eventsUpcoming: events.filter((event) => event.startsAt.getTime() >= now.getTime()).length,
+      tasksDone: tasks.length - open.length,
       tasksTotal: tasks.length,
+      tasksMine: open.filter((task) => task.assigneeId && idOf(task.assigneeId) === idOf(user._id)).length,
       households,
-      replies: (await RsvpModel.distinct("householdId", { weddingId: wedding._id, status: "yes" })).length,
-      expensesTotalInr: expenses.reduce((sum, item) => sum + item.amountInr, 0),
+      householdsAnswered: answered.length,
+      replies: answered.length,
+      peopleComing: attending[0]?.people ?? 0,
+      expensesTotalInr: expenses.reduce((sum, row) => sum + row.total, 0),
       vendors,
+      members,
+      photos: gallery,
     },
-  };
-  void date;
-}
-
-export async function listHouseholds(request: Request) {
-  const { membership } = await requireMember(request);
-  const rows = await HouseholdModel.find({ weddingId: membership.weddingId }).sort({ nameSearch: 1 });
-  const replies = await RsvpModel.find({ weddingId: membership.weddingId });
-  return {
-    items: rows.map((row) => ({
-      id: idOf(row._id),
-      name: row.name,
-      side: row.side,
-      maxPeople: row.maxPeople,
-      invitedEventIds: row.invitedEventIds.map(idOf),
-      email: row.email ?? null,
-      phone: row.phone ?? null,
-      invitationEmailSentAt: row.invitationEmailSentAt ? row.invitationEmailSentAt.toISOString() : null,
-      rsvps: replies
-        .filter((reply) => idOf(reply.householdId) === idOf(row._id))
-        .map((reply) => ({
-          eventId: idOf(reply.eventId),
-          status: reply.status,
-          attendingCount: reply.attendingCount,
-          diet: reply.diet,
-        })),
+    spendByCategory: expenses.map((row) => ({ category: row._id, totalInr: row.total })),
+    tasksNearingDue: nearing.map((task) => ({
+      id: idOf(task._id),
+      title: task.title,
+      dueOn: task.dueOn ?? null,
+      priority: task.priority,
+      overdue: Boolean(task.dueOn && task.dueOn < today),
+      assigneeName: task.assigneeId ? names.get(idOf(task.assigneeId)) ?? null : null,
     })),
+    site: { published: Boolean(site?.published && site.slug), slug: site?.slug ?? null },
   };
-}
-
-const householdSchema = z.object({
-  name: z.string().trim().min(1).max(100),
-  side: z.enum(["bride", "groom", "other"]),
-  maxPeople: z.number().int().min(1).max(25),
-  invitedEventIds: z.array(objectId).max(30),
-  email: z.string().trim().toLowerCase().max(200).optional(),
-}).strict();
-
-export async function createHousehold(request: Request, body: unknown) {
-  const { user, membership } = await requireMember(request);
-  const input = householdSchema.parse(body);
-  const count = await HouseholdModel.countDocuments({ weddingId: membership.weddingId });
-  if (count >= 2000) throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This wedding already has 2,000 households.");
-  const events = await EventModel.find({ _id: { $in: input.invitedEventIds }, weddingId: membership.weddingId });
-  if (events.length !== input.invitedEventIds.length) {
-    throw new ServiceError(400, "VALIDATION_ERROR", "UNKNOWN_EVENT", "Invite them to functions on this wedding.");
-  }
-  const email = input.email ? emailField.safeParse(input.email) : null;
-  if (input.email && !email?.success) {
-    throw new ServiceError(400, "VALIDATION_ERROR", "INVALID_EMAIL", "Enter a valid email address.");
-  }
-  const row = await HouseholdModel.create({
-    weddingId: membership.weddingId,
-    name: input.name,
-    nameSearch: input.name.toLowerCase(),
-    side: input.side,
-    maxPeople: input.maxPeople,
-    invitedEventIds: input.invitedEventIds,
-    inviteToken: randomToken(),
-    email: email?.success ? email.data : undefined,
-    createdBy: user._id,
-    schemaVersion: 1,
-  });
-  return { id: idOf(row._id), name: row.name };
-}
-
-export async function shareHousehold(request: Request, householdId: string) {
-  const { membership } = await requireMember(request);
-  if (!objectId.safeParse(householdId).success) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That household was not found.");
-  const row = await HouseholdModel.findOne({ _id: householdId, weddingId: membership.weddingId });
-  if (!row) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That household was not found.");
-  const wedding = await WeddingModel.findById(membership.weddingId);
-  const inviteUrl = `${publicAppUrl()}/i/${row.inviteToken}`;
-  const names = wedding ? `${wedding.brideName} & ${wedding.groomName}` : "The family";
-  const message = `${names} invite you. Open your link: ${inviteUrl}`;
-  return { inviteUrl, message, waUrl: `https://wa.me/?text=${encodeURIComponent(message)}` };
-}
-
-export async function sendHouseholdEmail(request: Request, householdId: string) {
-  const { membership } = await requireMember(request);
-  await consumeRateLimit("household-email", idOf(membership.weddingId), 500, 24 * 60 * 60 * 1000);
-  if (!objectId.safeParse(householdId).success) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That household was not found.");
-  const row = await HouseholdModel.findOne({ _id: householdId, weddingId: membership.weddingId });
-  if (!row) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That household was not found.");
-  if (!row.email) throw new ServiceError(409, "CONFLICT", "NO_EMAIL", "Add an email address before sending.");
-  const wedding = await WeddingModel.findById(membership.weddingId);
-  if (!wedding) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That wedding was not found.");
-  try {
-    await sendHouseholdInvitation({
-      to: row.email,
-      brideName: wedding.brideName,
-      groomName: wedding.groomName,
-      weddingDate: wedding.weddingDate,
-      city: wedding.city,
-      invitePath: `/i/${row.inviteToken}`,
-      idempotencyKey: `household-invite/${idOf(row._id)}/${Date.now()}`,
-    });
-  } catch (error) {
-    if (!(error instanceof EmailDeliveryError)) throw error;
-    throw new ServiceError(503, "INTERNAL_ERROR", "DEPENDENCY_UNAVAILABLE", "The email did not go out. Try again in a moment.");
-  }
-  const sentAt = new Date();
-  row.invitationEmailSentAt = sentAt;
-  await row.save();
-  return { invitationEmailSentAt: sentAt.toISOString() };
-}
-
-export async function readPublicInvite(token: string) {
-  await db();
-  if (!token || token.length < 20) return null;
-  const row = await HouseholdModel.findOne({ inviteToken: token });
-  if (!row) return null;
-  const wedding = await WeddingModel.findById(row.weddingId);
-  if (!wedding) return null;
-  const events = await EventModel.find({ _id: { $in: row.invitedEventIds } }).sort({ startsAt: 1 });
-  const replies = await RsvpModel.find({ eventId: { $in: events.map((event) => event._id) }, status: "yes" });
-  const attending = new Map<string, number>();
-  for (const reply of replies) {
-    const key = idOf(reply.eventId);
-    attending.set(key, (attending.get(key) ?? 0) + reply.attendingCount);
-  }
-  return {
-    household: row.name,
-    maxPeople: row.maxPeople,
-    couple: `${wedding.brideName} & ${wedding.groomName}`,
-    city: wedding.city,
-    events: events.map((event) => ({
-      ...presentEvent(event),
-      attending: attending.get(idOf(event._id)) ?? 0,
-    })),
-  };
-}
-
-const rsvpSchema = z.object({
-  people: z.number().int().min(0).max(25),
-  veg: z.number().int().min(0),
-  nonVeg: z.number().int().min(0),
-  jain: z.number().int().min(0),
-}).strict();
-
-export async function savePublicRsvp(token: string, body: unknown) {
-  await db();
-  const input = rsvpSchema.parse(body);
-  const row = await HouseholdModel.findOne({ inviteToken: token });
-  if (!row) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That invitation was not found.");
-  if (input.people > row.maxPeople) {
-    throw new ServiceError(400, "VALIDATION_ERROR", "OVER_CAPACITY", "That is more people than this invitation allows.");
-  }
-  if (input.veg + input.nonVeg + input.jain !== input.people) {
-    throw new ServiceError(400, "VALIDATION_ERROR", "DIET_MISMATCH", "Veg, non-veg, and Jain must add up to the people coming.");
-  }
-  const status = input.people === 0 ? "no" : "yes";
-  for (const eventId of row.invitedEventIds) {
-    await RsvpModel.findOneAndUpdate(
-      { householdId: row._id, eventId },
-      {
-        weddingId: row.weddingId,
-        householdId: row._id,
-        eventId,
-        status,
-        attendingCount: input.people,
-        diet: { veg: input.veg, nonVeg: input.nonVeg, jain: input.jain },
-        respondedAt: new Date(),
-        schemaVersion: 1,
-      },
-      { upsert: true },
-    );
-  }
-}
-
-export async function listTasks(request: Request) {
-  const { membership } = await requireMember(request);
-  const rows = await TaskModel.find({ weddingId: membership.weddingId }).sort({ createdAt: 1 });
-  const users = await UserModel.find({ _id: { $in: rows.map((row) => row.assigneeId).filter(Boolean) } });
-  const names = new Map(users.map((user) => [idOf(user._id), user.name]));
-  return {
-    items: rows.map((row) => ({
-      id: idOf(row._id),
-      title: row.title,
-      status: row.status,
-      priority: row.priority,
-      assigneeName: row.assigneeId ? names.get(idOf(row.assigneeId)) ?? null : null,
-      mine: row.assigneeId ? idOf(row.assigneeId) === idOf(membership.userId) : false,
-      dueOn: row.dueOn ?? null,
-    })),
-  };
-}
-
-const taskSchema = z.object({
-  title: z.string().trim().min(1).max(140),
-  status: z.enum(["todo", "doing", "done"]).optional(),
-  priority: z.enum(["low", "medium", "high"]).optional(),
-  assignToMe: z.boolean().optional(),
-}).strict();
-
-export async function createTask(request: Request, body: unknown) {
-  const { user, membership } = await requireMember(request);
-  const input = taskSchema.parse(body);
-  const count = await TaskModel.countDocuments({ weddingId: membership.weddingId });
-  if (count >= 2000) throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This wedding already has 2,000 tasks.");
-  const status = input.status ?? "todo";
-  const row = await TaskModel.create({
-    weddingId: membership.weddingId,
-    title: input.title,
-    status,
-    priority: input.priority ?? "medium",
-    ...(input.assignToMe ? { assigneeId: user._id } : {}),
-    completedAt: status === "done" ? new Date() : undefined,
-    createdBy: user._id,
-    schemaVersion: 1,
-  });
-  return { id: idOf(row._id), title: row.title, status: row.status, priority: row.priority };
-}
-
-const taskUpdateSchema = z.object({
-  status: z.enum(["todo", "doing", "done"]).optional(),
-  assignToMe: z.boolean().optional(),
-}).strict().refine((value) => value.status !== undefined || value.assignToMe !== undefined, "Choose a status or an assignee.");
-
-export async function updateTask(request: Request, taskId: string, body: unknown) {
-  const { user, membership } = await requireMember(request);
-  if (!objectId.safeParse(taskId).success) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That task was not found.");
-  const input = taskUpdateSchema.parse(body);
-  const row = await TaskModel.findOne({ _id: taskId, weddingId: membership.weddingId });
-  if (!row) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That task was not found.");
-  if (input.status) {
-    row.status = input.status;
-    row.completedAt = input.status === "done" ? row.completedAt ?? new Date() : undefined;
-  }
-  if (input.assignToMe === true) row.assigneeId = user._id;
-  if (input.assignToMe === false) row.assigneeId = undefined;
-  await row.save();
-  return { id: idOf(row._id), status: row.status };
-}
-
-export async function listExpenses(request: Request) {
-  const { membership } = await requireMember(request);
-  const rows = await ExpenseModel.find({ weddingId: membership.weddingId }).sort({ spentOn: -1 });
-  return {
-    items: rows.map((row) => ({
-      id: idOf(row._id),
-      title: row.title,
-      amountInr: row.amountInr,
-      spentOn: row.spentOn,
-      category: row.category,
-    })),
-    totalInr: rows.reduce((sum, row) => sum + row.amountInr, 0),
-  };
-}
-
-const EXPENSE_CATEGORIES = ["venue", "catering", "photography", "videography", "decoration", "clothing", "jewellery", "entertainment", "invitations", "gifts", "travel", "makeup", "miscellaneous"] as const;
-
-const expenseSchema = z.object({
-  title: z.string().trim().min(1).max(140),
-  amountInr: z.number().int().min(1).max(1_000_000_000),
-  spentOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  category: z.enum(EXPENSE_CATEGORIES),
-}).strict();
-
-export async function createExpense(request: Request, body: unknown) {
-  const { user, membership } = await requireMember(request);
-  const input = expenseSchema.parse(body);
-  const count = await ExpenseModel.countDocuments({ weddingId: membership.weddingId });
-  if (count >= 10000) throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This wedding already has 10,000 expenses.");
-  const row = await ExpenseModel.create({
-    ...input,
-    weddingId: membership.weddingId,
-    createdBy: user._id,
-    schemaVersion: 1,
-  });
-  return { id: idOf(row._id) };
-}
-
-export async function listVendors(request: Request) {
-  const { membership } = await requireMember(request);
-  const rows = await VendorModel.find({ weddingId: membership.weddingId }).sort({ name: 1 });
-  return {
-    items: rows.map((row) => ({
-      id: idOf(row._id),
-      name: row.name,
-      category: row.category,
-      contactPerson: row.contactPerson ?? null,
-      phone: row.phone ?? null,
-      agreedCostInr: row.agreedCostInr ?? null,
-    })),
-  };
-}
-
-const VENDOR_CATEGORIES = ["photographer", "videographer", "venue", "caterer", "decorator", "dj", "makeup", "mehendi_artist", "pandit", "choreographer", "florist", "planner", "transport", "other"] as const;
-
-const vendorSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  category: z.enum(VENDOR_CATEGORIES),
-  contactPerson: z.string().trim().max(100).optional(),
-  phone: z.string().trim().max(20).optional(),
-  agreedCostInr: z.number().int().min(0).optional(),
-}).strict();
-
-export async function createVendor(request: Request, body: unknown) {
-  const { user, membership } = await requireMember(request);
-  const input = vendorSchema.parse(body);
-  const count = await VendorModel.countDocuments({ weddingId: membership.weddingId });
-  if (count >= 300) throw new ServiceError(409, "CONFLICT", "LIMIT_REACHED", "This wedding already has 300 vendors.");
-  const row = await VendorModel.create({
-    ...input,
-    weddingId: membership.weddingId,
-    source: "manual",
-    createdBy: user._id,
-    schemaVersion: 1,
-  });
-  return { id: idOf(row._id) };
-}
-
-export async function listPhotos(request: Request) {
-  const { membership } = await requireMember(request);
-  const wedding = await WeddingModel.findById(membership.weddingId);
-  if (!wedding) throw new ServiceError(404, "NOT_FOUND", "NOT_FOUND", "That wedding was not found.");
-  const rows = await GalleryModel.find({ weddingId: membership.weddingId, hidden: false }).sort({ createdAt: -1 });
-  return {
-    enabled: wedding.gallery.enabled !== false,
-    guestUploadEnabled: wedding.gallery.guestUploadEnabled !== false,
-    directUpload: (process.env.BLOB_READ_WRITE_TOKEN ?? "").trim().length > 10,
-    uploadPrefix: `weddings/${idOf(wedding._id)}/gallery`,
-    url: `${publicAppUrl()}/g/${wedding.gallery.token}`,
-    items: rows.flatMap((row) => {
-      const url = row.publicPath?.startsWith("/photos/") || row.publicPath?.startsWith("https://")
-        ? row.publicPath
-        : `/api/gallery/items/${idOf(row._id)}/file`;
-      if (!url) return [];
-      return [{ id: idOf(row._id), title: row.title ?? "Photograph", kind: row.kind, url }];
-    }),
-  };
-}
-
-function isDuplicate(error: unknown) {
-  return typeof error === "object" && error !== null && "code" in error && (error as { code?: number }).code === 11000;
 }

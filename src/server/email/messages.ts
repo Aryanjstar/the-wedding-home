@@ -50,3 +50,38 @@ export function householdInvitationText(input: {
     input.url,
   ].join("\n");
 }
+
+export function reminderText(input: {
+  kind: "please_rsvp" | "see_you_soon";
+  householdName: string;
+  couple: string;
+  eventTitle: string;
+  when: string;
+  venue: string | null;
+  url: string;
+}) {
+  if (input.kind === "see_you_soon") {
+    return [
+      `${input.householdName}, see you at the ${input.eventTitle}.`,
+      "",
+      `${input.when}${input.venue ? ` · ${input.venue}` : ""}`,
+      "",
+      "Your invitation has the map, what to wear, and the helplines:",
+      input.url,
+      "",
+      `With love,`,
+      `${input.couple} and the families`,
+    ].join("\n");
+  }
+  return [
+    `Namaste ${input.householdName},`,
+    "",
+    `${input.couple} would love to know if you can join the ${input.eventTitle} on ${input.when}.`,
+    "",
+    "Please reply on your invitation. It takes a minute and needs no account:",
+    input.url,
+    "",
+    "With love,",
+    "The families",
+  ].join("\n");
+}

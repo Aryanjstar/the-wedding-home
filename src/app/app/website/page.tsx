@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { Website } from "@/components/workspace/views";
+import { WebsitePage } from "@/components/workspace/website";
 
-export const metadata: Metadata = { title: "Website · The Wedding Home" };
+export const metadata: Metadata = { title: "Website & themes · The Wedding Home" };
 
-export default function WebsitePage() {
-  return <Website />;
+export default function Page() {
+  return <WebsitePage />;
 }

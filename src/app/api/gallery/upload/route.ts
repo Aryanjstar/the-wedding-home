@@ -1,5 +1,5 @@
 import { runGalleryUpload } from "@/modules/gallery/direct";
-import { requireMember } from "@/modules/home/service";
+import { requireMember } from "@/modules/access";
 import { assertSameOrigin, json, toProblem } from "@/server/http/handle";
 import { createRequestId } from "@/server/http/request-id";
 import type { HandleUploadBody } from "@vercel/blob/client";

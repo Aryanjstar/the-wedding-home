@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { Details } from "@/components/workspace/views";
+import { DetailsPage } from "@/components/workspace/settings";
 
-export const metadata: Metadata = { title: "Details · The Wedding Home" };
+export const metadata: Metadata = { title: "Wedding details · The Wedding Home" };
 
-export default function DetailsPage() {
-  return <Details />;
+export default function Page() {
+  return <DetailsPage />;
 }

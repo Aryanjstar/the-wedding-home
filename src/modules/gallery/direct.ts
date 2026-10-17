@@ -14,6 +14,7 @@ const VIDEOS = ["video/mp4", "video/quicktime"];
 const registerSchema = z.object({
   url: z.string().url().max(500),
   pathname: z.string().trim().min(3).max(500),
+  eventId: z.string().regex(/^[a-f0-9]{24}$/i).nullable().optional(),
 }).strict();
 
 type Actor = { type: "organiser" | "guest"; userId?: mongoose.Types.ObjectId };
@@ -71,5 +72,5 @@ export async function registerUploadedBlob(weddingId: mongoose.Types.ObjectId, b
   if (!input.pathname.startsWith(`weddings/${String(weddingId)}/`)) {
     throw new ServiceError(403, "FORBIDDEN", "FORBIDDEN", "That upload is for another wedding.");
   }
-  return recordBlob({ weddingId, url: input.url, pathname: input.pathname, uploadedBy });
+  return recordBlob({ weddingId, url: input.url, pathname: input.pathname, eventId: input.eventId, uploadedBy });
 }

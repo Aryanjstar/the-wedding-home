@@ -4,6 +4,8 @@ out/
 build/
 dist/
 coverage/
+test-results/
+playwright-report/
 .vercel/
 .turbo/
 *.tsbuildinfo

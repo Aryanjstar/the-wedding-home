@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { Account } from "@/components/workspace/views";
+import { AccountPage } from "@/components/workspace/settings";
 
 export const metadata: Metadata = { title: "Account · The Wedding Home" };
 
-export default function AccountPage() {
-  return <Account />;
+export default function Page() {
+  return <AccountPage />;
 }
