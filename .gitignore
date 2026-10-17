@@ -26,3 +26,5 @@ docs/journey/
 
 # Stitch MCP config holds an API key. Keep it on this machine.
 .cursor/mcp.json
+.vercel
+.env*
